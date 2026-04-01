@@ -31,7 +31,8 @@ function createTransporter(config) {
 }
 
 const app = express();
-const PORT = 3002;
+// Railway 会注入 PORT 环境变量
+const PORT = process.env.PORT || 3002;
 
 // 中间件配置
 app.use(cors());
