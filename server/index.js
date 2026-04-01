@@ -235,8 +235,8 @@ app.post('/api/auth/login', async (req, res) => {
       return res.status(401).json({ error: '用户名或密码错误' });
     }
 
-    // 唯一管理员检查：s驯养灵魂 自动设为管理员
-    if (username === 's驯养灵魂' && user.role !== 'admin') {
+    // 唯一管理员检查：S驯养灵魂 自动设为管理员
+    if (username === 'S驯养灵魂' && user.role !== 'admin') {
       user.role = 'admin';
       await db.write();
     }
