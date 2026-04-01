@@ -9,12 +9,18 @@ import {
   Spin, 
   Typography,
   Space,
-  Divider
+  Divider,
+  Button,
+  Dropdown
 } from 'antd';
+import type { MenuProps } from 'antd';
 import { 
   FileTextOutlined, 
   UserOutlined,
-  ClockCircleOutlined
+  ClockCircleOutlined,
+  DownloadOutlined,
+  FileExcelOutlined,
+  FilePdfOutlined
 } from '@ant-design/icons';
 import axios from 'axios';
 import { useNavigate, useParams } from 'react-router-dom';
@@ -61,6 +67,53 @@ const SurveyStatistics: React.FC = () => {
       fetchStatistics(id);
     }
   }, [id]);
+
+  // 导出数据
+  const handleExport = async (type: 'excel' | 'csv' | 'pdf') => {
+    if (!id) return;
+    try {
+      const response = await axios.get(`/api/surveys/${id}/export/${type}`, {
+        responseType: 'blob'
+      });
+      
+      // 创建下载链接
+      const blob = new Blob([response.data]);
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `${surveyTitle}_答卷数据.${type === 'excel' ? 'xlsx' : type}`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      window.URL.revokeObjectURL(url);
+      
+      message.success('导出成功');
+    } catch (error) {
+      message.error('导出失败');
+    }
+  };
+
+  // 导出菜单
+  const exportMenuItems: MenuProps['items'] = [
+    {
+      key: 'excel',
+      icon: <FileExcelOutlined />,
+      label: '导出 Excel',
+      onClick: () => handleExport('excel')
+    },
+    {
+      key: 'csv',
+      icon: <FileTextOutlined />,
+      label: '导出 CSV',
+      onClick: () => handleExport('csv')
+    },
+    {
+      key: 'pdf',
+      icon: <FilePdfOutlined />,
+      label: '导出 PDF',
+      onClick: () => handleExport('pdf')
+    }
+  ];
 
   const fetchStatistics = async (surveyId: string) => {
     setLoading(true);
@@ -216,6 +269,11 @@ const SurveyStatistics: React.FC = () => {
     <div>
       <div style={{ marginBottom: 16, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <Title level={2}>{surveyTitle} - 统计分析</Title>
+        <Dropdown menu={{ items: exportMenuItems }} placement="bottomRight">
+          <Button type="primary" icon={<DownloadOutlined />}>
+            导出数据
+          </Button>
+        </Dropdown>
       </div>
 
       {/* 总览统计 */}

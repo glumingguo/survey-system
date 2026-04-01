@@ -12,10 +12,14 @@ const { PDFParse } = require('pdf-parse');
 
 // 同步加载nodemailer
 let nodemailerModule;
+let xlsxModule;
+let pdfModule;
 try {
   nodemailerModule = require('nodemailer');
+  xlsxModule = require('xlsx');
+  pdfModule = require('jspdf');
 } catch (e) {
-  console.error('加载nodemailer失败:', e.message);
+  console.error('加载模块失败:', e.message);
 }
 
 function createTransporter(config) {
@@ -675,6 +679,160 @@ function getQuestionTypeName(type) {
   };
   return types[type] || type;
 }
+
+// ========== 数据导出 API ==========
+
+// 导出 Excel
+app.get('/api/surveys/:id/export/excel', async (req, res) => {
+  try {
+    await db.read();
+    const survey = db.data.surveys.find(s => s.id === req.params.id);
+    const responses = db.data.responses.filter(r => r.surveyId === req.params.id);
+    
+    if (!survey) {
+      return res.status(404).json({ error: '问卷不存在' });
+    }
+    
+    // 准备数据
+    const headers = ['提交时间'];
+    survey.questions.forEach(q => headers.push(q.title));
+    if (responses.length > 0 && responses[0].files) {
+      headers.push('附件');
+    }
+    
+    const rows = responses.map(r => {
+      const row = [new Date(r.submittedAt).toLocaleString('zh-CN')];
+      survey.questions.forEach(q => {
+        const answer = r.answers[q.id];
+        if (Array.isArray(answer)) {
+          row.push(answer.join(', '));
+        } else {
+          row.push(answer || '');
+        }
+      });
+      if (r.files && r.files.length > 0) {
+        row.push(r.files.map(f => f.name).join(', '));
+      }
+      return row;
+    });
+    
+    const worksheet = xlsxModule.utils.aoa_to_sheet([headers, ...rows]);
+    const workbook = xlsxModule.utils.book_new();
+    xlsxModule.utils.book_append_sheet(workbook, worksheet, '答卷数据');
+    
+    const buffer = xlsxModule.write(workbook, { type: 'buffer', bookType: 'xlsx' });
+    
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', `attachment; filename=${encodeURIComponent(survey.title)}_答卷数据.xlsx`);
+    res.send(buffer);
+  } catch (error) {
+    console.error('导出Excel失败:', error);
+    res.status(500).json({ error: '导出失败' });
+  }
+});
+
+// 导出 CSV
+app.get('/api/surveys/:id/export/csv', async (req, res) => {
+  try {
+    await db.read();
+    const survey = db.data.surveys.find(s => s.id === req.params.id);
+    const responses = db.data.responses.filter(r => r.surveyId === req.params.id);
+    
+    if (!survey) {
+      return res.status(404).json({ error: '问卷不存在' });
+    }
+    
+    // 准备数据
+    const headers = ['提交时间'];
+    survey.questions.forEach(q => headers.push(q.title));
+    if (responses.length > 0 && responses[0].files) {
+      headers.push('附件');
+    }
+    
+    // CSV 转义函数
+    const escapeCSV = (str) => {
+      if (str === null || str === undefined) return '';
+      const s = String(str);
+      if (s.includes(',') || s.includes('"') || s.includes('\n')) {
+        return `"${s.replace(/"/g, '""')}"`;
+      }
+      return s;
+    };
+    
+    let csv = headers.map(h => escapeCSV(h)).join(',') + '\n';
+    responses.forEach(r => {
+      const row = [new Date(r.submittedAt).toLocaleString('zh-CN')];
+      survey.questions.forEach(q => {
+        const answer = r.answers[q.id];
+        if (Array.isArray(answer)) {
+          row.push(answer.join(', '));
+        } else {
+          row.push(answer || '');
+        }
+      });
+      if (r.files && r.files.length > 0) {
+        row.push(r.files.map(f => f.name).join(', '));
+      }
+      csv += row.map(v => escapeCSV(v)).join(',') + '\n';
+    });
+    
+    res.setHeader('Content-Type', 'text/csv;charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename=${encodeURIComponent(survey.title)}_答卷数据.csv`);
+    res.send('\ufeff' + csv); // BOM for Excel
+  } catch (error) {
+    console.error('导出CSV失败:', error);
+    res.status(500).json({ error: '导出失败' });
+  }
+});
+
+// 导出 PDF
+app.get('/api/survey/:id/export/pdf', async (req, res) => {
+  try {
+    await db.read();
+    const survey = db.data.surveys.find(s => s.id === req.params.id);
+    const responses = db.data.responses.filter(r => r.surveyId === req.params.id);
+    
+    if (!survey) {
+      return res.status(404).json({ error: '问卷不存在' });
+    }
+    
+    // 简单的文本报告生成
+    let content = `问卷: ${survey.title}\n`;
+    content += `导出时间: ${new Date().toLocaleString('zh-CN')}\n`;
+    content += `答卷数量: ${responses.length}\n\n`;
+    
+    responses.forEach((r, i) => {
+      content += `--- 第 ${i + 1} 份答卷 ---\n`;
+      content += `提交时间: ${new Date(r.submittedAt).toLocaleString('zh-CN')}\n`;
+      survey.questions.forEach(q => {
+        const answer = r.answers[q.id];
+        if (Array.isArray(answer)) {
+          content += `${q.title}: ${answer.join(', ')}\n`;
+        } else {
+          content += `${q.title}: ${answer || '(未回答)'}\n`;
+        }
+      });
+      content += '\n';
+    });
+    
+    // 使用 jspdf 生成 PDF
+    const { jsPDF } = pdfModule;
+    const doc = new jsPDF();
+    
+    // 换行处理
+    const lines = doc.splitTextToSize(content, 180);
+    doc.text(lines, 10, 10);
+    
+    const pdfBuffer = doc.output('arraybuffer');
+    
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename=${encodeURIComponent(survey.title)}_答卷数据.pdf`);
+    res.send(Buffer.from(pdfBuffer));
+  } catch (error) {
+    console.error('导出PDF失败:', error);
+    res.status(500).json({ error: '导出失败' });
+  }
+});
 
 app.listen(PORT, () => {
   console.log(`问卷系统后端服务运行在 http://localhost:${PORT}`);
