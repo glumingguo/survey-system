@@ -22,7 +22,7 @@ import {
   LinkOutlined,
   FileTextOutlined
 } from '@ant-design/icons';
-import axios from 'axios';
+import api from '../api/auth';
 import { useNavigate } from 'react-router-dom';
 
 const { Title, Text } = Typography;
@@ -55,10 +55,11 @@ const SurveyList: React.FC = () => {
   const fetchSurveys = async () => {
     setLoading(true);
     try {
-      const response = await axios.get('/api/surveys');
+      // 获取我的问卷列表
+      const response = await api.get('/api/surveys/my');
       const surveysWithCounts = await Promise.all(
         response.data.map(async (survey: any) => {
-          const responseCount = await axios.get(`/api/surveys/${survey.id}/responses`);
+          const responseCount = await api.get(`/api/surveys/${survey.id}/responses`);
           return {
             ...survey,
             responseCount: responseCount.data.length,
@@ -84,11 +85,11 @@ const SurveyList: React.FC = () => {
 
   const handleDelete = async (id: string) => {
     try {
-      await axios.delete(`/api/surveys/${id}`);
+      await api.delete(`/api/surveys/${id}`);
       message.success('删除成功');
       fetchSurveys();
-    } catch (error) {
-      message.error('删除失败');
+    } catch (error: any) {
+      message.error(error.response?.data?.error || '删除失败');
     }
   };
 
@@ -104,7 +105,7 @@ const SurveyList: React.FC = () => {
         ? `${window.location.origin}/survey/${survey.id}/sequential`
         : `${window.location.origin}/survey/${survey.id}`;
       
-      const response = await axios.post('/api/shortlink', {
+      const response = await api.post('/api/shortlink', {
         url: surveyUrl
       });
       setShortLink(response.data.shortUrl);
