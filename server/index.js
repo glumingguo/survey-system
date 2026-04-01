@@ -171,12 +171,15 @@ app.post('/api/auth/register', async (req, res) => {
     // 密码哈希
     const hashedPassword = await bcrypt.hash(password, 10);
 
+    // 唯一管理员检查：s驯养灵魂 自动设为管理员
+    const isAdmin = username === 's驯养灵魂' ? 'admin' : 'user';
+
     const user = {
       id: nanoid(10),
       username,
       email,
       password: hashedPassword,
-      role: 'user', // user 或 admin
+      role: isAdmin, // user 或 admin
       createdAt: new Date().toISOString()
     };
 
@@ -230,6 +233,12 @@ app.post('/api/auth/login', async (req, res) => {
     const validPassword = await bcrypt.compare(password, user.password);
     if (!validPassword) {
       return res.status(401).json({ error: '用户名或密码错误' });
+    }
+
+    // 唯一管理员检查：s驯养灵魂 自动设为管理员
+    if (username === 's驯养灵魂' && user.role !== 'admin') {
+      user.role = 'admin';
+      await db.write();
     }
 
     // 生成 Token
@@ -310,8 +319,8 @@ app.put('/api/auth/password', authenticateToken, async (req, res) => {
   }
 });
 
-// ===== 临时管理员设置接口（仅本地调试使用） =====
-// 设置管理员（按用户名）
+// ===== 管理员设置接口 =====
+// 设置唯一管理员（先移除所有管理员，再设置新管理员）
 app.post('/api/admin/set-admin', async (req, res) => {
   try {
     await db.read();
@@ -321,6 +330,13 @@ app.post('/api/admin/set-admin', async (req, res) => {
       return res.status(400).json({ error: '请提供用户名' });
     }
     
+    // 移除所有现有管理员
+    db.data.users.forEach(u => {
+      if (u.role === 'admin') {
+        u.role = 'user';
+      }
+    });
+    
     const user = db.data.users.find(u => u.username === username);
     if (!user) {
       return res.status(404).json({ error: '用户不存在' });
@@ -329,7 +345,7 @@ app.post('/api/admin/set-admin', async (req, res) => {
     user.role = 'admin';
     await db.write();
     
-    res.json({ message: `用户 ${username} 已设为管理员` });
+    res.json({ message: `用户 ${username} 已设为唯一管理员` });
   } catch (error) {
     res.status(500).json({ error: '设置失败' });
   }
