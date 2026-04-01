@@ -319,6 +319,31 @@ app.put('/api/auth/password', authenticateToken, async (req, res) => {
   }
 });
 
+// ===== 临时密码重置接口（仅用于初始化设置，完成后应删除）=====
+app.post('/api/admin/reset-password', async (req, res) => {
+  try {
+    await db.read();
+    const { username, newPassword } = req.body;
+    
+    if (!username || !newPassword) {
+      return res.status(400).json({ error: '请提供用户名和新密码' });
+    }
+    
+    const user = db.data.users.find(u => u.username === username);
+    if (!user) {
+      return res.status(404).json({ error: '用户不存在' });
+    }
+    
+    // 重置密码
+    user.password = await bcrypt.hash(newPassword, 10);
+    await db.write();
+    
+    res.json({ message: `用户 ${username} 的密码已重置` });
+  } catch (error) {
+    res.status(500).json({ error: '密码重置失败' });
+  }
+});
+
 // ===== 管理员设置接口 =====
 // 设置唯一管理员（先移除所有管理员，再设置新管理员）
 app.post('/api/admin/set-admin', async (req, res) => {
