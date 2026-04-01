@@ -310,6 +310,31 @@ app.put('/api/auth/password', authenticateToken, async (req, res) => {
   }
 });
 
+// ===== 临时管理员设置接口（仅本地调试使用） =====
+// 设置管理员（按用户名）
+app.post('/api/admin/set-admin', async (req, res) => {
+  try {
+    await db.read();
+    const { username } = req.body;
+    
+    if (!username) {
+      return res.status(400).json({ error: '请提供用户名' });
+    }
+    
+    const user = db.data.users.find(u => u.username === username);
+    if (!user) {
+      return res.status(404).json({ error: '用户不存在' });
+    }
+    
+    user.role = 'admin';
+    await db.write();
+    
+    res.json({ message: `用户 ${username} 已设为管理员` });
+  } catch (error) {
+    res.status(500).json({ error: '设置失败' });
+  }
+});
+
 // API 路由
 
 // 1. 问卷管理
