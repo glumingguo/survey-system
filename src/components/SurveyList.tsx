@@ -271,7 +271,8 @@ const SurveyList: React.FC = () => {
         open={qrModalVisible}
         onCancel={() => setQrModalVisible(false)}
         footer={null}
-        width={400}
+        width="90%"
+        style={{ maxWidth: 400 }}
       >
         {selectedSurvey && (
           <div className="qr-code-container">
@@ -286,7 +287,7 @@ const SurveyList: React.FC = () => {
               src={`/api/surveys/${selectedSurvey.id}/qrcode`}
               alt="问卷二维码"
               className="qr-code-image"
-              style={{ width: 250, height: 250 }}
+              style={{ width: '100%', maxWidth: 250, height: 'auto', aspectRatio: '1' }}
             />
             <p style={{ marginTop: 16 }}>
               扫描二维码或访问：<br />
@@ -312,7 +313,8 @@ const SurveyList: React.FC = () => {
         open={linkModalVisible}
         onCancel={() => setLinkModalVisible(false)}
         footer={null}
-        width={500}
+        width="90%"
+        style={{ maxWidth: 500 }}
       >
         {shortLink && (
           <div style={{ padding: '24px 0' }}>

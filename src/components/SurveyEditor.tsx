@@ -35,7 +35,10 @@ import {
   FolderOutlined,
   MoreOutlined,
   EyeOutlined,
-  PlayCircleOutlined
+  PlayCircleOutlined,
+  NodeIndexOutlined,
+  RightOutlined,
+  StopOutlined
 } from '@ant-design/icons';
 import axios from 'axios';
 import { useNavigate, useParams } from 'react-router-dom';
@@ -109,6 +112,7 @@ const SurveyEditor: React.FC = () => {
   const [branchModalVisible, setBranchModalVisible] = useState(false);
   const [editingSection, setEditingSection] = useState<Section | null>(null);
   const [editingBranch, setEditingBranch] = useState<BranchLogic | null>(null);
+  const [jumpPreviewVisible, setJumpPreviewVisible] = useState(false);
   const navigate = useNavigate();
   const { id } = useParams();
 
@@ -434,9 +438,9 @@ const SurveyEditor: React.FC = () => {
 
   return (
     <div>
-      <div style={{ marginBottom: 16, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+      <div style={{ marginBottom: 16, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12 }}>
         <Title level={2}>{id ? '编辑问卷' : '创建新问卷'}</Title>
-        <Space>
+        <Space wrap>
           {id && (
             <>
               <Button 
@@ -660,7 +664,7 @@ const SurveyEditor: React.FC = () => {
                   <Select
                     value={question.type}
                     onChange={(value) => handleQuestionChange(question.id, 'type', value)}
-                    style={{ width: 150 }}
+                    style={{ minWidth: 100 }}
                   >
                     <Option value="text">填空题</Option>
                     <Option value="textarea">问答题</Option>
@@ -892,7 +896,92 @@ const SurveyEditor: React.FC = () => {
             >
               添加分支逻辑
             </Button>
+            {(branchLogics.length > 0 || questions.some(q => q.optionJumps?.length)) && (
+              <Button 
+                type="dashed" 
+                onClick={() => setJumpPreviewVisible(!jumpPreviewVisible)}
+                icon={<NodeIndexOutlined />}
+                danger={jumpPreviewVisible}
+              >
+                {jumpPreviewVisible ? '收起跳转预览' : '查看跳转预览'}
+              </Button>
+            )}
           </div>
+          
+          {/* 跳转预览视图 */}
+          {jumpPreviewVisible && (
+            <Card 
+              type="inner" 
+              title={<Text strong>跳转流程预览</Text>}
+              style={{ background: '#f5f5f5', marginTop: 8 }}
+            >
+              <div style={{ maxHeight: 400, overflowY: 'auto' }}>
+                {questions.map((q, idx) => {
+                  // 收集该问题的所有跳转规则
+                  const jumps: Array<{type: string, text: string, color: string}> = [];
+                  
+                  // 选项级跳转
+                  if (q.optionJumps?.length) {
+                    q.optionJumps.forEach(jump => {
+                      if (jump.jumpType === 'end') {
+                        jumps.push({ type: 'end', text: `选择"${jump.optionText}"→结束`, color: '#ff4d4f' });
+                      } else if (jump.jumpType === 'question' && jump.targetQuestionId) {
+                        const targetIdx = questions.findIndex(q => q.id === jump.targetQuestionId);
+                        if (targetIdx !== -1) {
+                          jumps.push({ type: 'jump', text: `选择"${jump.optionText}"→问题${targetIdx + 1}`, color: '#1890ff' });
+                        }
+                      }
+                    });
+                  }
+                  
+                  // 全局分支逻辑
+                  const globalBranch = branchLogics.find(b => b.sourceQuestionId === q.id);
+                  if (globalBranch) {
+                    if (globalBranch.action === 'skip' && globalBranch.skipCount) {
+                      jumps.push({ type: 'skip', text: `"${globalBranch.sourceOption}"时跳过${globalBranch.skipCount}题`, color: '#faad14' });
+                    } else if (globalBranch.action === 'jump' && globalBranch.targetQuestionId) {
+                      const targetIdx = questions.findIndex(q => q.id === globalBranch.targetQuestionId);
+                      if (targetIdx !== -1) {
+                        jumps.push({ type: 'jump', text: `"${globalBranch.sourceOption}"→问题${targetIdx + 1}`, color: '#1890ff' });
+                      }
+                    }
+                  }
+                  
+                  if (jumps.length === 0) return null;
+                  
+                  return (
+                    <div key={q.id} style={{ marginBottom: 12, padding: '8px 12px', background: '#fff', borderRadius: 6 }}>
+                      <Space>
+                        <Tag color="default">问题{idx + 1}</Tag>
+                        <Text strong style={{ maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          {q.title || '(未填写标题)'}
+                        </Text>
+                      </Space>
+                      <div style={{ marginTop: 6, marginLeft: 60 }}>
+                        {jumps.map((j, jIdx) => (
+                          <Tag key={jIdx} color={j.color} style={{ marginBottom: 4 }}>
+                            {j.type === 'end' ? <StopOutlined /> : j.type === 'skip' ? <RightOutlined /> : <RightOutlined />}
+                            {' '}{j.text}
+                          </Tag>
+                        ))}
+                      </div>
+                    </div>
+                  );
+                })}
+                {questions.filter(q => 
+                  !q.optionJumps?.length && 
+                  !branchLogics.some(b => b.sourceQuestionId === q.id)
+                ).length === questions.length && questions.length > 0 && (
+                  <Alert 
+                    message="暂无跳转规则" 
+                    description="点击上方「添加分支逻辑」或为选项设置跳转" 
+                    type="info" 
+                    showIcon 
+                  />
+                )}
+              </div>
+            </Card>
+          )}
 
           {/* 分区列表 */}
           {sections.length > 0 && (
@@ -979,7 +1068,8 @@ const SurveyEditor: React.FC = () => {
         open={branchModalVisible}
         onOk={handleSaveBranch}
         onCancel={() => { setBranchModalVisible(false); setEditingBranch(null); }}
-        width={600}
+        width="90%"
+        style={{ maxWidth: 600 }}
       >
         <Form layout="vertical">
           <Form.Item label="触发问题">

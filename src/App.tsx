@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Routes, Route, Navigate, useNavigate } from 'react-router-dom';
 import { Layout, Menu } from 'antd';
 import { 
@@ -26,6 +26,21 @@ function App() {
   const navigate = useNavigate();
   const [collapsed, setCollapsed] = useState(false);
   const [selectedKey, setSelectedKey] = useState('1');
+  const [isMobile, setIsMobile] = useState(false);
+
+  // 检测移动端
+  useEffect(() => {
+    const checkMobile = () => {
+      setIsMobile(window.innerWidth <= 768);
+      if (window.innerWidth <= 768) {
+        setCollapsed(true);
+      }
+    };
+    
+    checkMobile();
+    window.addEventListener('resize', checkMobile);
+    return () => window.removeEventListener('resize', checkMobile);
+  }, []);
 
   const menuItems = [
     {
@@ -75,8 +90,15 @@ function App() {
             <Layout style={{ minHeight: '100vh' }}>
               <Sider 
                 collapsible 
-                collapsed={collapsed} 
+                collapsed={collapsed || isMobile}
                 onCollapse={setCollapsed}
+                breakpoint="lg"
+                collapsedWidth={0}
+                onBreakpoint={(broken) => {
+                  if (broken) {
+                    setCollapsed(true);
+                  }
+                }}
                 style={{
                   overflow: 'auto',
                   height: '100vh',
@@ -84,6 +106,7 @@ function App() {
                   left: 0,
                   top: 0,
                   bottom: 0,
+                  zIndex: 100,
                 }}
               >
                 <div className="logo">
@@ -99,19 +122,29 @@ function App() {
                   onClick={handleMenuClick}
                 />
               </Sider>
-              <Layout style={{ marginLeft: collapsed ? 80 : 200, transition: 'margin-left 0.2s' }}>
+              <Layout style={{ marginLeft: (collapsed || isMobile) ? 0 : 200, transition: 'margin-left 0.2s', transitionProperty: 'margin-left' }}>
                 <Header 
                   style={{ 
                     padding: '0 24px', 
                     background: '#fff',
                     display: 'flex',
                     alignItems: 'center',
-                    justifyContent: 'flex-end'
+                    justifyContent: 'flex-end',
+                    position: 'sticky',
+                    top: 0,
+                    zIndex: 99,
+                    boxShadow: '0 2px 8px rgba(0,0,0,0.1)'
                   }} 
                 >
+                  {isMobile && (
+                    <BarsOutlined 
+                      style={{ fontSize: 20, marginRight: 'auto', cursor: 'pointer' }}
+                      onClick={() => setCollapsed(!collapsed)}
+                    />
+                  )}
                   <UserMenu />
                 </Header>
-                <Content style={{ margin: '24px 16px', padding: 24, background: '#fff', minHeight: 280 }}>
+                <Content style={{ margin: isMobile ? '12px' : '24px 16px', padding: isMobile ? 12 : 24, background: '#fff', minHeight: 280 }}>
                   <Routes>
                     <Route path="/" element={<SurveyList />} />
                     <Route path="/surveys" element={<SurveyList />} />

@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
-import { User, getSavedUser, getToken, saveAuth, clearAuth, getCurrentUser } from '../api/auth';
+import * as authModule from '../api/auth';
+import type { User } from '../api/auth';
 
 interface AuthContextType {
   user: User | null;
@@ -31,17 +32,18 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   // 初始化：检查本地存储的 token
   useEffect(() => {
     const initAuth = async () => {
-      const savedUser = getSavedUser();
-      const token = getToken();
+      const savedUser = authModule.getSavedUser();
+      const token = authModule.getToken();
 
       if (savedUser && token) {
         // 验证 token 是否有效
         try {
-          const freshUser = await getCurrentUser();
+          const freshUser = await authModule.getCurrentUser();
           setUser(freshUser);
-        } catch {
+        } catch (error) {
+          console.warn('Token 验证失败:', error);
           // token 无效，清除
-          clearAuth();
+          authModule.clearAuth();
           setUser(null);
         }
       }
@@ -52,21 +54,19 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   }, []);
 
   const login = async (username: string, password: string) => {
-    const { login: loginApi } = await import('../api/auth');
-    const response = await loginApi(username, password);
-    saveAuth(response.token, response.user);
+    const response = await authModule.login(username, password);
+    authModule.saveAuth(response.token, response.user);
     setUser(response.user);
   };
 
   const register = async (username: string, email: string, password: string) => {
-    const { register: registerApi } = await import('../api/auth');
-    const response = await registerApi(username, email, password);
-    saveAuth(response.token, response.user);
+    const response = await authModule.register(username, email, password);
+    authModule.saveAuth(response.token, response.user);
     setUser(response.user);
   };
 
   const logout = () => {
-    clearAuth();
+    authModule.clearAuth();
     setUser(null);
   };
 

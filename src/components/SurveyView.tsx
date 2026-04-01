@@ -370,7 +370,8 @@ const SurveyView: React.FC = () => {
                             <Text type="secondary">示例图片：</Text>
                             <div style={{ marginTop: 8 }}>
                               <Image
-                                width={300}
+                                width="100%"
+                                style={{ maxWidth: 300 }}
                                 src={question.imageUrl}
                                 alt="示例图片"
                               />
@@ -394,7 +395,7 @@ const SurveyView: React.FC = () => {
               htmlType="submit"
               icon={<SendOutlined />}
               loading={loading}
-              style={{ minWidth: 200 }}
+              style={{ minWidth: 120, width: '100%', maxWidth: 200 }}
             >
               提交答卷
             </Button>

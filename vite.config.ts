@@ -7,11 +7,16 @@ export default defineConfig({
     port: 5173,
     proxy: {
       '/api': {
-        target: 'http://localhost:3002',
+        // 如果设置了 VITE_API_BASE，使用它；否则使用本地后端
+        target: (process.env.VITE_API_BASE || 'http://localhost:3002').replace(/\/api\/.*$/, ''),
         changeOrigin: true
       },
       '/uploads': {
-        target: 'http://localhost:3002',
+        target: process.env.VITE_API_BASE || 'http://localhost:3002',
+        changeOrigin: true
+      },
+      '/s/': {
+        target: process.env.VITE_API_BASE || 'http://localhost:3002',
         changeOrigin: true
       }
     }
