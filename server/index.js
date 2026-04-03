@@ -319,6 +319,33 @@ app.put('/api/auth/password', authenticateToken, async (req, res) => {
   }
 });
 
+// ===== 将无主问卷归属给指定用户（一次性迁移）=====
+app.post('/api/admin/claim-surveys', async (req, res) => {
+  try {
+    await db.read();
+    const { username } = req.body;
+    
+    const user = db.data.users.find(u => u.username === username);
+    if (!user) {
+      return res.status(404).json({ error: '用户不存在' });
+    }
+    
+    // 找到所有没有 userId 的问卷，归属给该用户
+    let count = 0;
+    db.data.surveys.forEach(survey => {
+      if (!survey.userId) {
+        survey.userId = user.id;
+        count++;
+      }
+    });
+    
+    await db.write();
+    res.json({ message: `已将 ${count} 份无主问卷归属给 ${username}` });
+  } catch (error) {
+    res.status(500).json({ error: '迁移失败' });
+  }
+});
+
 // ===== 临时密码重置接口（仅用于初始化设置，完成后应删除）=====
 app.post('/api/admin/reset-password', async (req, res) => {
   try {
