@@ -1,6 +1,0 @@
-[build]
-builder = "nixpacks"
-startCommand = "cd server && npm install && node index.js"
-
-[nixpacks]
-root = "."
