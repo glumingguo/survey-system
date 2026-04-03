@@ -1,9 +1,6 @@
 [build]
 builder = "nixpacks"
+startCommand = "cd server && npm install && node index.js"
 
-[build.nixpacks]
-# 指定从 server 目录构建
-root_directory = "server"
-
-[deploy]
-startCommand = "node index.js"
+[nixpacks]
+root = "."
