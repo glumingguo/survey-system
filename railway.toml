@@ -1,0 +1,9 @@
+[build]
+builder = "nixpacks"
+
+[build.nixpacks]
+# 指定从 server 目录构建
+root_directory = "server"
+
+[deploy]
+startCommand = "node index.js"
