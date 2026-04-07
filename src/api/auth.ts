@@ -7,13 +7,72 @@ export interface User {
   username: string;
   email: string;
   role: 'user' | 'admin';
+  status?: 'active' | 'pending' | 'banned';
+  groupIds?: string[];
   createdAt?: string;
+  // 用户资料字段
+  avatar?: string;
+  avatar_url?: string;
+  nickname?: string;
+  gender?: string;
+  age?: number;
+  birthday?: string;
+  occupation?: string;
+  marital_status?: string;
+  province?: string;
+  city?: string;
+  district?: string;
+  address?: string;
+  phone?: string;
+  wechat?: string;
+  qq?: string;
+  bio?: string;
+  hobbies?: string;
+  interests?: string;
+  education?: string;
+  income_range?: string;
+  cover_image?: string;
+  birthday_public?: boolean;
+  contact_public?: boolean;
+  profile_completed?: boolean;
+  isProfileCompleted?: boolean;
 }
 
 export interface AuthResponse {
   message: string;
   token: string;
   user: User;
+}
+
+// 用户资料接口
+export interface UserProfile {
+  id?: string;
+  username?: string;
+  email?: string;
+  avatar?: string;
+  avatar_url?: string;
+  nickname?: string;
+  gender?: string;
+  age?: number;
+  birthday?: string;
+  occupation?: string;
+  marital_status?: string;
+  province?: string;
+  city?: string;
+  district?: string;
+  address?: string;
+  phone?: string;
+  wechat?: string;
+  qq?: string;
+  bio?: string;
+  hobbies?: string;
+  interests?: string;
+  education?: string;
+  income_range?: string;
+  cover_image?: string;
+  birthday_public?: boolean;
+  contact_public?: boolean;
+  isProfileCompleted?: boolean;
 }
 
 // 创建 axios 实例
@@ -46,8 +105,8 @@ api.interceptors.response.use(
 );
 
 // 注册
-export const register = async (username: string, email: string, password: string): Promise<AuthResponse> => {
-  const response = await api.post('/api/auth/register', { username, email, password });
+export const register = async (username: string, email: string, password: string, inviteCode?: string): Promise<AuthResponse> => {
+  const response = await api.post('/api/auth/register', { username, email, password, inviteCode });
   return response.data;
 };
 
@@ -93,3 +152,26 @@ export const clearAuth = () => {
 
 // 导出 api 实例供其他模块使用
 export default api;
+
+// ===== 用户资料 API =====
+
+// 获取当前用户资料
+export const getUserProfile = async (): Promise<UserProfile> => {
+  const response = await api.get('/api/auth/profile');
+  return response.data;
+};
+
+// 更新当前用户资料
+export const updateUserProfile = async (data: Partial<UserProfile>): Promise<void> => {
+  await api.put('/api/auth/profile', data);
+};
+
+// 上传用户头像
+export const uploadAvatar = async (file: File): Promise<string> => {
+  const formData = new FormData();
+  formData.append('avatar', file);
+  const response = await api.post('/api/auth/avatar', formData, {
+    headers: { 'Content-Type': 'multipart/form-data' }
+  });
+  return response.data.url;
+};

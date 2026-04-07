@@ -1,6 +1,6 @@
 import React from 'react';
 import { Dropdown, Avatar, Space, Typography } from 'antd';
-import { UserOutlined, LogoutOutlined, SettingOutlined } from '@ant-design/icons';
+import { UserOutlined, LogoutOutlined, SettingOutlined, IdcardOutlined } from '@ant-design/icons';
 import type { MenuProps } from 'antd';
 import { useAuth } from '../context/AuthContext';
 import { useNavigate } from 'react-router-dom';
@@ -38,6 +38,12 @@ const UserMenu: React.FC = () => {
     },
     { type: 'divider' },
     {
+      key: 'profile',
+      label: '个人资料',
+      icon: <IdcardOutlined />,
+      onClick: () => navigate('/profile'),
+    },
+    {
       key: 'changePassword',
       label: '修改密码',
       icon: <SettingOutlined />,
@@ -63,7 +69,7 @@ const UserMenu: React.FC = () => {
           <span style={{ color: '#333' }}>{user.username}</span>
         </Space>
       </Dropdown>
-      
+
       <ChangePasswordModal
         open={changePasswordOpen}
         onClose={() => setChangePasswordOpen(false)}

@@ -7,7 +7,7 @@ interface AuthContextType {
   isAuthenticated: boolean;
   isLoading: boolean;
   login: (username: string, password: string) => Promise<void>;
-  register: (username: string, email: string, password: string) => Promise<void>;
+  register: (username: string, email: string, password: string, inviteCode?: string) => Promise<any>;
   logout: () => void;
 }
 
@@ -59,10 +59,14 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     setUser(response.user);
   };
 
-  const register = async (username: string, email: string, password: string) => {
-    const response = await authModule.register(username, email, password);
-    authModule.saveAuth(response.token, response.user);
-    setUser(response.user);
+  const register = async (username: string, email: string, password: string, inviteCode?: string) => {
+    const response = await authModule.register(username, email, password, inviteCode);
+    // 如果是待审核状态，不保存 auth
+    if (response.token) {
+      authModule.saveAuth(response.token, response.user);
+      setUser(response.user);
+    }
+    return response;
   };
 
   const logout = () => {
