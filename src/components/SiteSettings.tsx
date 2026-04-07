@@ -1,11 +1,10 @@
 import React, { useEffect, useState } from 'react';
 import {
   Form, Input, Button, Card, message, Select, Divider,
-  Upload, Image, Space, Typography, Spin, Row, Col, InputNumber, Switch, ColorPicker
+  Upload, Image, Typography, Spin, Row, Col, InputNumber, Switch, ColorPicker
 } from 'antd';
 import { UploadOutlined, PictureOutlined } from '@ant-design/icons';
-import { getAdminSiteSettings, updateSiteSettings, uploadSiteImage, type SiteSettings } from '../api/site';
-import { getAnnouncements } from '../api/site';
+import { getAdminSiteSettings, updateSiteSettings, uploadSiteImage, getAnnouncements, type SiteSettings } from '../api/site';
 
 const { Title, Text } = Typography;
 const { Option } = Select;
