@@ -392,22 +392,10 @@ app.post('/api/auth/login', async (req, res) => {
       JWT_SECRET,
       { expiresIn: '7d' }
     );
-    // 获取用户的头像和昵称
-    const profileResult = await pool.query('SELECT avatar_url, nickname FROM user_profiles WHERE user_id = $1', [user.id]);
-    const profile = profileResult.rows[0] || {};
-
     res.json({
       message: '登录成功',
       token,
-      user: {
-        id: user.id,
-        username: user.username,
-        email: user.email,
-        role: user.role,
-        avatar: profile.avatar_url || user.avatar || null,
-        avatar_url: profile.avatar_url || user.avatar || null,
-        nickname: profile.nickname || null,
-      }
+      user: { id: user.id, username: user.username, email: user.email, role: user.role }
     });
   } catch (error) {
     console.error('登录失败:', error);
@@ -418,24 +406,10 @@ app.post('/api/auth/login', async (req, res) => {
 // 获取当前用户信息
 app.get('/api/auth/me', authenticateToken, async (req, res) => {
   try {
-    const result = await pool.query('SELECT id, username, email, role, created_at, avatar FROM users WHERE id = $1', [req.user.id]);
+    const result = await pool.query('SELECT id, username, email, role, created_at FROM users WHERE id = $1', [req.user.id]);
     if (!result.rows[0]) return res.status(404).json({ error: '用户不存在' });
     const u = result.rows[0];
-
-    // 获取用户的头像和昵称
-    const profileResult = await pool.query('SELECT avatar_url, nickname FROM user_profiles WHERE user_id = $1', [req.user.id]);
-    const profile = profileResult.rows[0] || {};
-
-    res.json({
-      id: u.id,
-      username: u.username,
-      email: u.email,
-      role: u.role,
-      createdAt: u.created_at,
-      avatar: profile.avatar_url || u.avatar || null,
-      avatar_url: profile.avatar_url || u.avatar || null,
-      nickname: profile.nickname || null,
-    });
+    res.json({ id: u.id, username: u.username, email: u.email, role: u.role, createdAt: u.created_at });
   } catch (error) {
     res.status(500).json({ error: '获取用户信息失败' });
   }
@@ -1227,9 +1201,8 @@ app.use((req, res, next) => {
 app.get('/api/site-settings', async (req, res) => {
   try {
     const result = await pool.query("SELECT value FROM settings WHERE key = 'siteSettings'");
-    const rawValue = result.rows[0] ? result.rows[0].value : '{}';
-    const settings = typeof rawValue === 'string' ? JSON.parse(rawValue) : rawValue;
-    // 公开接口返回所有前台展示所需字段
+    const settings = result.rows[0] ? result.rows[0].value : {};
+    // 公开接口只返回前台展示所需字段
     res.json({
       siteName: settings.siteName || '我的个人空间',
       siteSubtitle: settings.siteSubtitle || '',
@@ -1237,12 +1210,6 @@ app.get('/api/site-settings', async (req, res) => {
       sidebarLogo: settings.sidebarLogo || '',
       heroBanner: settings.heroBanner || '',
       registerMode: settings.registerMode || 'open',
-      menuLabels: settings.menuLabels || {},
-      moduleIcons: settings.moduleIcons || {},
-      heroTitleStyle: settings.heroTitleStyle || {},
-      marqueeConfig: settings.marqueeConfig || { enabled: false },
-      moduleImages: settings.moduleImages || {},
-      homePageStyle: settings.homePageStyle || { backgroundColor: '#f0f2f5', moduleCount: 3, containerPadding: 24 },
     });
   } catch (error) {
     res.status(500).json({ error: '获取站点设置失败' });
@@ -1254,9 +1221,7 @@ app.get('/api/admin/site-settings', authenticateToken, async (req, res) => {
   if (req.user.role !== 'admin') return res.status(403).json({ error: '需要管理员权限' });
   try {
     const result = await pool.query("SELECT value FROM settings WHERE key = 'siteSettings'");
-    const rawValue = result.rows[0] ? result.rows[0].value : '{}';
-    const settings = typeof rawValue === 'string' ? JSON.parse(rawValue) : rawValue;
-    res.json(settings);
+    res.json(result.rows[0] ? result.rows[0].value : {});
   } catch (error) {
     res.status(500).json({ error: '获取站点设置失败' });
   }
