@@ -30,7 +30,8 @@ import UserMenu from './components/UserMenu';
 import SiteSettingsPage from './components/SiteSettings';
 import MemberManagement from './pages/MemberManagement';
 import InviteCodes from './components/InviteCodes';
-import AnnouncementPage from './components/Announcements';
+import HomePage from './components/Announcements';
+import AnnouncementList from './pages/AnnouncementList';
 import MessagesPage from './components/Messages';
 import VisitStatistics from './components/VisitStatistics';
 import ResourceLibrary from './components/ResourceLibrary';
@@ -44,8 +45,11 @@ const { Header, Sider, Content } = Layout;
 
 interface SiteConfig {
   siteName: string;
+  siteSubtitle?: string;
   sidebarLogo?: string;
   heroBanner?: string;
+  loginBg?: string;
+  registerMode?: string;
   menuLabels?: {
     dashboard?: string;
     announcements?: string;
@@ -63,6 +67,34 @@ interface SiteConfig {
     resources?: string;
     albums?: string;
     surveys?: string;
+  };
+  heroTitleStyle?: {
+    fontSize?: number;
+    subtitleFontSize?: number;
+    titleColor?: string;
+    subtitleColor?: string;
+    position?: 'top' | 'center' | 'bottom';
+    bannerOpacity?: number;
+  };
+  marqueeConfig?: {
+    enabled?: boolean;
+    announcementIds?: string[];
+    fontSize?: number;
+    color?: string;
+    background?: string;
+    speed?: number;
+  };
+  moduleImages?: {
+    resources?: string;
+    albums?: string;
+    surveys?: string;
+  };
+  homePageStyle?: {
+    backgroundColor?: string;
+    backgroundImage?: string;
+    backgroundOpacity?: number;
+    moduleCount?: number;
+    containerPadding?: number;
   };
 }
 
@@ -248,9 +280,9 @@ function MainLayout() {
 
         <Content style={{ margin: isMobile ? '12px' : '24px 16px', padding: isMobile ? 12 : 24, background: '#fff', minHeight: 280 }}>
           <Routes>
-            <Route path="/" element={<AnnouncementPage siteConfig={siteConfig} />} />
-            <Route path="/dashboard" element={<AnnouncementPage siteConfig={siteConfig} />} />
-            <Route path="/announcements" element={<AnnouncementPage siteConfig={siteConfig} />} />
+            <Route path="/" element={<HomePage siteConfig={siteConfig} />} />
+            <Route path="/dashboard" element={<HomePage siteConfig={siteConfig} />} />
+            <Route path="/announcements" element={<AnnouncementList />} />
             <Route path="/messages" element={<MessagesPage />} />
             <Route path="/resources" element={<ResourceLibrary />} />
             <Route path="/albums" element={<AlbumPage />} />

@@ -1,23 +1,20 @@
-import React, { useEffect, useState, useRef } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
-  Card, Button, Modal, Form, Input, Select, Switch, Tag, Space,
-  Popconfirm, message, Typography, List, Row, Col
+  Card, Typography, Row, Col
 } from 'antd';
-import { PlusOutlined, EditOutlined, DeleteOutlined, PushpinOutlined, RightOutlined } from '@ant-design/icons';
+import { RightOutlined } from '@ant-design/icons';
 import {
-  getAnnouncements, createAnnouncement, updateAnnouncement, deleteAnnouncement,
-  getGroups, type Announcement, type UserGroup
+  getAnnouncements, type Announcement
 } from '../api/site';
-import { useAuth } from '../context/AuthContext';
 
-const { Title, Text } = Typography;
-const { TextArea } = Input;
-const { Option } = Select;
+const { Text } = Typography;
 
 const API_BASE = import.meta.env.VITE_API_BASE || '';
 
 interface SiteConfig {
   heroBanner?: string;
+  siteName?: string;
+  siteSubtitle?: string;
   menuLabels?: {
     resources?: string;
     albums?: string;
@@ -28,15 +25,14 @@ interface SiteConfig {
     albums?: string;
     surveys?: string;
   };
-  // 首页标题样式
   heroTitleStyle?: {
     fontSize?: number;
     subtitleFontSize?: number;
     titleColor?: string;
     subtitleColor?: string;
     position?: 'top' | 'center' | 'bottom';
+    bannerOpacity?: number;
   };
-  // 首页滚动公告配置
   marqueeConfig?: {
     enabled?: boolean;
     announcementIds?: string[];
@@ -45,13 +41,11 @@ interface SiteConfig {
     background?: string;
     speed?: number;
   };
-  // 首页模块图片（优先于 emoji）
   moduleImages?: {
     resources?: string;
     albums?: string;
     surveys?: string;
   };
-  // 首页背景配置
   homePageStyle?: {
     backgroundColor?: string;
     backgroundImage?: string;
@@ -65,17 +59,10 @@ interface Props {
   siteConfig?: SiteConfig;
 }
 
-const AnnouncementPage: React.FC<Props> = ({ siteConfig }) => {
-  const { user } = useAuth();
-  const isAdmin = user?.role === 'admin';
+const HomePage: React.FC<Props> = ({ siteConfig }) => {
   const [announcements, setAnnouncements] = useState<Announcement[]>([]);
-  const [groups, setGroups] = useState<UserGroup[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [modalOpen, setModalOpen] = useState(false);
-  const [editing, setEditing] = useState<Announcement | null>(null);
-  const [form] = Form.useForm();
 
-  // 从 siteConfig 读取菜单标签（向后兼容）
+  // 从 siteConfig 读取菜单标签
   const labels = {
     resources: siteConfig?.menuLabels?.resources || '资源库',
     albums: siteConfig?.menuLabels?.albums || '相册',
@@ -108,14 +95,31 @@ const AnnouncementPage: React.FC<Props> = ({ siteConfig }) => {
     minHeight: '100vh',
     backgroundColor: homePageStyle?.backgroundColor || '#f0f2f5',
     padding: homePageStyle?.containerPadding || 24,
+    position: 'relative',
+  };
+
+  // 背景图透明度
+  const bgOpacity = homePageStyle?.backgroundOpacity ?? 1;
+
+  // 背景遮罩层样式（用于实现背景图透明度效果）
+  const overlayStyle: React.CSSProperties = {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundImage: homePageStyle?.backgroundImage ? `url(${API_BASE}${homePageStyle.backgroundImage})` : 'none',
+    backgroundSize: 'cover',
+    backgroundPosition: 'center',
+    opacity: bgOpacity,
+    pointerEvents: 'none',
+    zIndex: 0,
   };
 
   // 如果有背景图，添加背景样式
   if (homePageStyle?.backgroundImage) {
-    containerStyle.backgroundImage = `url(${API_BASE}${homePageStyle.backgroundImage})`;
-    containerStyle.backgroundSize = 'cover';
-    containerStyle.backgroundPosition = 'center';
-    containerStyle.backgroundAttachment = 'fixed';
+    // 背景色设置在内容层
+    containerStyle.backgroundColor = homePageStyle?.backgroundColor || '#f0f2f5';
   }
 
   // 标题样式配置
@@ -166,76 +170,21 @@ const AnnouncementPage: React.FC<Props> = ({ siteConfig }) => {
   // 根据配置限制模块数量
   const moduleCards = allModuleCards.slice(0, moduleCount);
 
-  const loadData = async () => {
-    setLoading(true);
-    try {
-      const [annData, groupData] = await Promise.all([
-        getAnnouncements(),
-        isAdmin ? getGroups() : Promise.resolve([])
-      ]);
-      setAnnouncements(annData);
-      setGroups(groupData);
-    } catch {
-      message.error('加载公告失败');
-    } finally {
-      setLoading(false);
+  useEffect(() => {
+    // 只加载公告用于滚动显示
+    if (marqueeConfig?.enabled) {
+      getAnnouncements().then(setAnnouncements).catch(() => {});
     }
-  };
-
-  useEffect(() => { loadData(); }, []);
-
-  const handleSubmit = async (values: any) => {
-    try {
-      if (editing) {
-        await updateAnnouncement(editing.id, {
-          ...values,
-          targetType: values.targetType,
-          targetGroupIds: values.targetGroupIds || [],
-          isPinned: values.isPinned || false
-        });
-        message.success('公告已更新');
-      } else {
-        await createAnnouncement({
-          ...values,
-          targetType: values.targetType || 'all',
-          targetGroupIds: values.targetGroupIds || [],
-          isPinned: values.isPinned || false
-        });
-        message.success('公告已发布');
-      }
-      setModalOpen(false);
-      setEditing(null);
-      form.resetFields();
-      loadData();
-    } catch {
-      message.error('操作失败');
-    }
-  };
-
-  const handleDelete = async (id: string) => {
-    try {
-      await deleteAnnouncement(id);
-      message.success('已删除');
-      loadData();
-    } catch {
-      message.error('删除失败');
-    }
-  };
-
-  const openEdit = (ann: Announcement) => {
-    setEditing(ann);
-    form.setFieldsValue({
-      title: ann.title,
-      content: ann.content,
-      targetType: ann.target_type,
-      targetGroupIds: ann.target_group_ids,
-      isPinned: ann.is_pinned
-    });
-    setModalOpen(true);
-  };
+  }, [marqueeConfig?.enabled]);
 
   return (
     <div style={containerStyle}>
+      {/* 背景遮罩层（用于背景图和透明度） */}
+      {homePageStyle?.backgroundImage && (
+        <div style={overlayStyle} />
+      )}
+      {/* 内容层 */}
+      <div style={{ position: 'relative', zIndex: 1 }}>
       {/* 滚动公告 */}
       {marqueeConfig?.enabled && marqueeAnnouncements.length > 0 && (
         <div
@@ -294,7 +243,24 @@ const AnnouncementPage: React.FC<Props> = ({ siteConfig }) => {
           <img
             src={`${API_BASE}${heroBanner}`}
             alt="横幅"
-            style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+            style={{
+              width: '100%',
+              height: '100%',
+              objectFit: 'cover',
+              opacity: titleStyle.bannerOpacity !== undefined ? titleStyle.bannerOpacity : 1,
+            }}
+          />
+          {/* 半透明黑色遮罩（增强文字可读性） */}
+          <div
+            style={{
+              position: 'absolute',
+              top: 0,
+              left: 0,
+              right: 0,
+              bottom: 0,
+              background: `rgba(0,0,0,${titleStyle.bannerOpacity !== undefined ? (1 - (titleStyle.bannerOpacity as number)) * 0.3 : 0})`,
+              pointerEvents: 'none',
+            }}
           />
           {/* 标题叠加层 */}
           {(titleStyle.fontSize || titleStyle.titleColor) && (
@@ -308,7 +274,7 @@ const AnnouncementPage: React.FC<Props> = ({ siteConfig }) => {
                   marginBottom: 8,
                 }}
               >
-                {siteConfig?.menuLabels?.dashboard || '首页'}
+                {siteConfig?.siteName || '我的空间'}
               </div>
               {siteConfig?.siteSubtitle && (
                 <div
@@ -338,7 +304,7 @@ const AnnouncementPage: React.FC<Props> = ({ siteConfig }) => {
               marginBottom: 8,
             }}
           >
-            {siteConfig?.menuLabels?.dashboard || '首页'}
+            {siteConfig?.siteName || '我的空间'}
           </div>
           {siteConfig?.siteSubtitle && (
             <div
@@ -357,7 +323,7 @@ const AnnouncementPage: React.FC<Props> = ({ siteConfig }) => {
       {moduleCards.length > 0 && (
         <Row gutter={[16, 16]} style={{ marginBottom: 24 }}>
           {moduleCards.map((card) => (
-            <Col xs={24} sm={24 / moduleCount} key={card.key}>
+            <Col xs={24} sm={Math.floor(24 / moduleCount)} key={card.key}>
               <Card
                 hoverable
                 onClick={() => window.location.href = card.path}
@@ -395,116 +361,9 @@ const AnnouncementPage: React.FC<Props> = ({ siteConfig }) => {
           ))}
         </Row>
       )}
-
-      {/* 公告列表 */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-        <Title level={4} style={{ margin: 0 }}>
-          {siteConfig?.menuLabels?.announcements || '公告通知'}
-        </Title>
-        {isAdmin && (
-          <Button
-            type="primary"
-            icon={<PlusOutlined />}
-            onClick={() => { setEditing(null); form.resetFields(); setModalOpen(true); }}
-          >
-            发布公告
-          </Button>
-        )}
       </div>
-
-      <List
-        loading={loading}
-        dataSource={announcements}
-        locale={{ emptyText: '暂无公告' }}
-        renderItem={(ann) => (
-          <Card
-            style={{ marginBottom: 12 }}
-            extra={
-              isAdmin && (
-                <Space>
-                  <Button size="small" icon={<EditOutlined />} onClick={() => openEdit(ann)} />
-                  <Popconfirm title="确认删除？" onConfirm={() => handleDelete(ann.id)} okText="删除" okType="danger" cancelText="取消">
-                    <Button size="small" danger icon={<DeleteOutlined />} />
-                  </Popconfirm>
-                </Space>
-              )
-            }
-            title={
-              <Space>
-                {ann.is_pinned && <Tag icon={<PushpinOutlined />} color="red">置顶</Tag>}
-                <span>{ann.title}</span>
-              </Space>
-            }
-          >
-            <div style={{ whiteSpace: 'pre-wrap', color: '#333', marginBottom: 8 }}>{ann.content}</div>
-            <div>
-              <Text type="secondary" style={{ fontSize: 12 }}>
-                {new Date(ann.created_at).toLocaleString('zh-CN')}
-              </Text>
-              {isAdmin && (
-                <span style={{ marginLeft: 12 }}>
-                  {ann.target_type === 'all' && <Tag>所有人</Tag>}
-                  {ann.target_type === 'members' && <Tag color="blue">仅会员</Tag>}
-                  {ann.target_type === 'groups' && (
-                    <Space>
-                      {(ann.target_group_ids || []).map(gid => {
-                        const g = groups.find(g => g.id === gid);
-                        return g ? <Tag key={gid} color={g.color}>{g.name}</Tag> : null;
-                      })}
-                    </Space>
-                  )}
-                </span>
-              )}
-            </div>
-          </Card>
-        )}
-      />
-
-      <Modal
-        title={editing ? '编辑公告' : '发布公告'}
-        open={modalOpen}
-        onOk={() => form.submit()}
-        onCancel={() => { setModalOpen(false); setEditing(null); form.resetFields(); }}
-        okText="发布"
-        cancelText="取消"
-        width={560}
-      >
-        <Form form={form} layout="vertical" onFinish={handleSubmit}>
-          <Form.Item label="标题" name="title" rules={[{ required: true, message: '请输入标题' }]}>
-            <Input placeholder="公告标题" />
-          </Form.Item>
-          <Form.Item label="内容" name="content" rules={[{ required: true, message: '请输入内容' }]}>
-            <TextArea rows={5} placeholder="公告内容" />
-          </Form.Item>
-          <Form.Item label="可见范围" name="targetType" initialValue="all">
-            <Select>
-              <Option value="all">所有访客（包括未登录）</Option>
-              <Option value="members">仅登录会员</Option>
-              <Option value="groups">指定分组</Option>
-            </Select>
-          </Form.Item>
-          <Form.Item noStyle shouldUpdate={(prev, curr) => prev.targetType !== curr.targetType}>
-            {({ getFieldValue }) =>
-              getFieldValue('targetType') === 'groups' && (
-                <Form.Item label="目标分组" name="targetGroupIds">
-                  <Select mode="multiple" placeholder="选择分组">
-                    {groups.map(g => (
-                      <Option key={g.id} value={g.id}>
-                        <Tag color={g.color}>{g.name}</Tag>
-                      </Option>
-                    ))}
-                  </Select>
-                </Form.Item>
-              )
-            }
-          </Form.Item>
-          <Form.Item label="置顶" name="isPinned" valuePropName="checked">
-            <Switch />
-          </Form.Item>
-        </Form>
-      </Modal>
     </div>
   );
 };
 
-export default AnnouncementPage;
+export default HomePage;

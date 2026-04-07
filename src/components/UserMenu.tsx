@@ -13,6 +13,11 @@ const UserMenu: React.FC = () => {
   const navigate = useNavigate();
   const [changePasswordOpen, setChangePasswordOpen] = React.useState(false);
 
+  // 显示昵称优先于用户名
+  const displayName = user?.nickname || user?.username;
+  // 头像 URL
+  const avatarUrl = user?.avatar || user?.avatar_url;
+
   const handleLogout = () => {
     logout();
     navigate('/login');
@@ -24,7 +29,7 @@ const UserMenu: React.FC = () => {
       label: (
         <Space>
           <UserOutlined />
-          <span>{user?.username}</span>
+          <span>{displayName}</span>
         </Space>
       ),
       disabled: true,
@@ -65,8 +70,12 @@ const UserMenu: React.FC = () => {
     <>
       <Dropdown menu={{ items: menuItems }} placement="bottomRight">
         <Space style={{ cursor: 'pointer', padding: '0 16px' }}>
-          <Avatar style={{ backgroundColor: '#1890ff' }} icon={<UserOutlined />} />
-          <span style={{ color: '#333' }}>{user.username}</span>
+          <Avatar
+            src={avatarUrl ? `${import.meta.env.VITE_API_BASE || ''}${avatarUrl}` : undefined}
+            style={{ backgroundColor: avatarUrl ? 'transparent' : '#1890ff' }}
+            icon={!avatarUrl && <UserOutlined />}
+          />
+          <span style={{ color: '#333' }}>{displayName}</span>
         </Space>
       </Dropdown>
 

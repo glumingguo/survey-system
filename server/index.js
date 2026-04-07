@@ -1202,7 +1202,7 @@ app.get('/api/site-settings', async (req, res) => {
   try {
     const result = await pool.query("SELECT value FROM settings WHERE key = 'siteSettings'");
     const settings = result.rows[0] ? result.rows[0].value : {};
-    // 公开接口只返回前台展示所需字段
+    // 公开接口返回所有前台展示所需字段
     res.json({
       siteName: settings.siteName || '我的个人空间',
       siteSubtitle: settings.siteSubtitle || '',
@@ -1210,6 +1210,12 @@ app.get('/api/site-settings', async (req, res) => {
       sidebarLogo: settings.sidebarLogo || '',
       heroBanner: settings.heroBanner || '',
       registerMode: settings.registerMode || 'open',
+      menuLabels: settings.menuLabels || {},
+      moduleIcons: settings.moduleIcons || {},
+      heroTitleStyle: settings.heroTitleStyle || {},
+      marqueeConfig: settings.marqueeConfig || {},
+      moduleImages: settings.moduleImages || {},
+      homePageStyle: settings.homePageStyle || {},
     });
   } catch (error) {
     res.status(500).json({ error: '获取站点设置失败' });

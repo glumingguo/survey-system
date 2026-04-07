@@ -38,6 +38,7 @@ export interface SiteSettings {
     titleColor?: string; // 标题颜色，默认 #fff
     subtitleColor?: string; // 副标题颜色，默认 rgba(255,255,255,0.85)
     position?: 'top' | 'center' | 'bottom'; // 位置，默认 center
+    bannerOpacity?: number; // 封面图透明度，默认1
   };
   // 首页滚动公告配置
   marqueeConfig?: {

@@ -6,6 +6,7 @@ import {
 import { UserOutlined, UploadOutlined, CameraOutlined } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import { getUserProfile, updateUserProfile, uploadAvatar, type UserProfile } from '../api/auth';
+import { useAuth } from '../context/AuthContext';
 
 const { Title, Text } = Typography;
 const { Option } = Select;
@@ -15,6 +16,7 @@ const { RangePicker } = DatePicker;
 const API_BASE = import.meta.env.VITE_API_BASE || '';
 
 const ProfilePage: React.FC = () => {
+  const { updateUser } = useAuth();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [profile, setProfile] = useState<UserProfile>({});
@@ -60,7 +62,13 @@ const ProfilePage: React.FC = () => {
   const handleSave = async (values: any) => {
     setSaving(true);
     try {
-      await updateUserProfile(values);
+      const updated = await updateUserProfile(values);
+      // 更新 AuthContext 中的用户信息
+      updateUser({
+        nickname: updated.nickname,
+        avatar: updated.avatar || updated.avatar_url,
+        ...values,
+      });
       message.success('资料更新成功');
       loadProfile();
     } catch (error: any) {
@@ -74,6 +82,8 @@ const ProfilePage: React.FC = () => {
     try {
       const url = await uploadAvatar(file);
       setProfile({ ...profile, avatar_url: url, avatar: url });
+      // 更新 AuthContext 中的头像
+      updateUser({ avatar: url, avatar_url: url });
       message.success('头像上传成功');
     } catch {
       message.error('头像上传失败');
