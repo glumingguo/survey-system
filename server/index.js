@@ -30,6 +30,25 @@ function decodeFileName(filename) {
     return filename;
   }
 }
+
+// 修复双重 UTF-8 编码的文件名
+function fixDoubleEncoding(str) {
+  if (!str) return str;
+  try {
+    // 检查是否是双重编码（每个中文字符变成 6 个字节如 c3a5c2a4）
+    // 正确的中文 UTF-8 编码是 3 个字节如 e5a4a7
+    const buffer = Buffer.from(str, 'latin1');
+    // 尝试将 buffer 作为 UTF-8 解码
+    const fixed = buffer.toString('utf8');
+    // 如果解码后包含正确的 UTF-8 字符，则返回修复后的字符串
+    if (/[\u4e00-\u9fa5]/.test(fixed)) {
+      return fixed;
+    }
+    return str;
+  } catch (e) {
+    return str;
+  }
+}
 console.log('环境变量加载测试:');
 console.log('DATABASE_URL:', process.env.DATABASE_URL ? '已设置' : '未设置');
 console.log('JWT_SECRET:', process.env.JWT_SECRET ? '已设置' : '未设置');
@@ -53,7 +72,15 @@ const JWT_SECRET = process.env.JWT_SECRET || 'survey-system-secret-key-2024';
 // ===== PostgreSQL 连接池 =====
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
-  ssl: false
+  ssl: false,
+  types: {
+    getTypeParser: () => (val) => val
+  }
+});
+
+// 设置客户端编码为 UTF8（解决中文乱码问题）
+pool.query('SET client_encoding TO UTF8').catch(err => {
+  console.error('设置客户端编码失败:', err.message);
 });
 
 // 初始化数据库表结构
@@ -239,6 +266,31 @@ async function initDB() {
       );
     `);
 
+    // 创建默认管理员账号（如果不存在）
+    const adminUsername = 'S驯养灵魂';
+    const adminEmail = 'admin@localhost';
+    const adminPassword = 'guo340015'; // 默认密码
+    
+    const adminCheck = await client.query(
+      'SELECT id FROM users WHERE username = $1',
+      [adminUsername]
+    );
+    
+    if (!adminCheck.rows[0]) {
+      // bcrypt hash for 'guo340015' - 使用固定的哈希值避免每次启动都计算
+      const bcrypt = require('bcryptjs');
+      const hashedPassword = await bcrypt.hash(adminPassword, 10);
+      
+      await client.query(
+        `INSERT INTO users (id, username, email, password, role, status) 
+         VALUES ($1, $2, $3, $4, 'admin', 'active')`,
+        ['admin-001', adminUsername, adminEmail, hashedPassword]
+      );
+      console.log(`默认管理员账号已创建: ${adminUsername} / ${adminPassword}`);
+    } else {
+      console.log('默认管理员账号已存在');
+    }
+
     console.log('数据库表初始化完成');
   } catch (err) {
     console.error('数据库初始化失败:', err);
@@ -392,6 +444,7 @@ app.post('/api/auth/register', async (req, res) => {
 });
 
 // 用户登录
+// 用户登录
 app.post('/api/auth/login', async (req, res) => {
   try {
     const { username, password } = req.body;
@@ -404,14 +457,25 @@ app.post('/api/auth/login', async (req, res) => {
       [username]
     );
     const user = result.rows[0];
-    if (!user) return res.status(401).json({ error: '用户名或密码错误' });
+    
+    // 用户不存在
+    if (!user) {
+      return res.status(401).json({ error: '用户不存在，请检查用户名或邮箱是否正确' });
+    }
 
+    // 验证密码
     const validPassword = await bcrypt.compare(password, user.password);
-    if (!validPassword) return res.status(401).json({ error: '用户名或密码错误' });
+    if (!validPassword) {
+      return res.status(401).json({ error: '密码错误，请检查密码是否正确' });
+    }
 
     // 检查账号状态
-    if (user.status === 'pending') return res.status(403).json({ error: '您的账号正在等待管理员审核' });
-    if (user.status === 'banned') return res.status(403).json({ error: '您的账号已被禁用，请联系管理员' });
+    if (user.status === 'pending') {
+      return res.status(403).json({ error: '您的账号正在等待管理员审核，请耐心等待' });
+    }
+    if (user.status === 'banned') {
+      return res.status(403).json({ error: '您的账号已被禁用，请联系管理员解封' });
+    }
 
     // 唯一管理员保护：S驯养灵魂 始终是 admin
     if (user.username === 'S驯养灵魂' && user.role !== 'admin') {
@@ -437,7 +501,7 @@ app.post('/api/auth/login', async (req, res) => {
     });
   } catch (error) {
     console.error('登录失败:', error);
-    res.status(500).json({ error: '登录失败' });
+    res.status(500).json({ error: '服务器错误，请稍后重试' });
   }
 });
 
@@ -1235,6 +1299,55 @@ app.use((req, res, next) => {
 
 // ========== 网站设置 API ==========
 
+// 辅助函数：将 ColorPicker 对象转换为十六进制字符串
+function normalizeColor(color) {
+  if (!color) return '#f0f2f5';
+  if (typeof color === 'string') return color;
+  // 处理 Ant Design Color 对象
+  if (color.metaColor && typeof color.metaColor === 'object') {
+    const { r, g, b } = color.metaColor;
+    if (r !== undefined && g !== undefined && b !== undefined) {
+      return `#${[r, g, b].map(x => x.toString(16).padStart(2, '0')).join('')}`;
+    }
+  }
+  // 如果是其他对象，尝试提取 _v 或直接返回
+  if (color._v) return color._v;
+  return '#f0f2f5';
+}
+
+// 辅助函数：转换 moduleImages/moduleIcons 到 moduleConfigs 格式
+function normalizeModuleConfigs(settings) {
+  const moduleConfigs = settings.moduleConfigs || {};
+  const moduleImages = settings.moduleImages || {};
+  const moduleIcons = settings.moduleIcons || {};
+  
+  // 合并旧格式到新格式
+  ['resources', 'albums', 'surveys'].forEach(key => {
+    if (!moduleConfigs[key]) {
+      moduleConfigs[key] = {};
+    }
+    // 优先使用新格式，如果没有则从旧格式转换
+    if (!moduleConfigs[key].image && moduleImages[key]) {
+      moduleConfigs[key].image = moduleImages[key];
+    }
+    if (!moduleConfigs[key].icon && moduleIcons[key]) {
+      moduleConfigs[key].icon = moduleIcons[key];
+    }
+  });
+  
+  return moduleConfigs;
+}
+
+// 辅助函数：规范化首页背景样式
+function normalizeHomePageStyle(settings) {
+  const homePageStyle = settings.homePageStyle || {};
+  return {
+    ...homePageStyle,
+    // 确保 backgroundColor 是字符串
+    backgroundColor: normalizeColor(homePageStyle.backgroundColor),
+  };
+}
+
 // 获取站点设置（公开）
 app.get('/api/site-settings', async (req, res) => {
   try {
@@ -1249,10 +1362,10 @@ app.get('/api/site-settings', async (req, res) => {
       heroBanner: settings.heroBanner || '',
       registerMode: settings.registerMode || 'open',
       menuLabels: settings.menuLabels || {},
-      moduleConfigs: settings.moduleConfigs || {},
+      moduleConfigs: normalizeModuleConfigs(settings),
       heroTitleStyle: settings.heroTitleStyle || {},
       marqueeConfig: settings.marqueeConfig || {},
-      homePageStyle: settings.homePageStyle || {},
+      homePageStyle: normalizeHomePageStyle(settings),
     });
   } catch (error) {
     res.status(500).json({ error: '获取站点设置失败' });
@@ -1933,12 +2046,20 @@ const resourceUpload = multer({
 app.post('/api/admin/resource-folders/:id/files', authenticateToken, resourceUpload.single('file'), async (req, res) => {
   if (req.user.role !== 'admin') return res.status(403).json({ error: '需要管理员权限' });
   if (!req.file) return res.status(400).json({ error: '没有上传文件' });
+  
+  // 设置客户端编码为 UTF8（解决中文乱码问题）
+  try {
+    await pool.query('SET client_encoding TO UTF8');
+  } catch (err) {
+    console.error('设置客户端编码失败:', err.message);
+  }
+  
   try {
     const id = nanoid(10);
-    const decodedName = decodeFileName(req.file.originalname);
+    const originalName = fixDoubleEncoding(req.file.originalname);
     const result = await pool.query(
       'INSERT INTO resource_files (id, folder_id, name, original_name, file_path, file_type, file_size, description) VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *',
-      [id, req.params.id, req.file.filename, decodedName, `/uploads/resources/${req.file.filename}`, req.file.mimetype, req.file.size, req.body.description || '']
+      [id, req.params.id, req.file.filename, originalName, `/uploads/resources/${req.file.filename}`, req.file.mimetype, req.file.size, req.body.description || '']
     );
     res.json(result.rows[0]);
   } catch (error) {
@@ -1950,27 +2071,43 @@ app.post('/api/admin/resource-folders/:id/files', authenticateToken, resourceUpl
 app.post('/api/admin/resource-folders/:id/files/batch', authenticateToken, resourceUpload.array('files', 50), async (req, res) => {
   if (req.user.role !== 'admin') return res.status(403).json({ error: '需要管理员权限' });
   if (!req.files || req.files.length === 0) return res.status(400).json({ error: '没有上传文件' });
+  
+  // 设置客户端编码为 UTF8（解决中文乱码问题）
+  try {
+    await pool.query('SET client_encoding TO UTF8');
+  } catch (err) {
+    console.error('设置客户端编码失败:', err.message);
+  }
+  
   try {
     const inserted = [];
     // 使用 Set 来跟踪已插入的文件，避免重复
     const insertedNames = new Set();
     
     for (const file of req.files) {
-      // 解码文件名
-      const decodedName = decodeFileName(file.originalname);
+      // 获取原始文件名，修复双重编码问题
+      const originalName = fixDoubleEncoding(file.originalname);
       
       // 避免完全相同的文件名被重复插入（同一次上传中）
-      const fileKey = `${file.size}-${decodedName}`;
+      const fileKey = `${file.size}-${originalName}`;
       if (insertedNames.has(fileKey)) {
-        console.log(`跳过重复文件: ${decodedName}`);
         continue;
       }
       insertedNames.add(fileKey);
       
+      // 检查数据库中是否已存在相同 original_name 的文件
+      const existingFile = await pool.query(
+        'SELECT id FROM resource_files WHERE folder_id=$1 AND original_name=$2',
+        [req.params.id, originalName]
+      );
+      if (existingFile.rows.length > 0) {
+        continue;
+      }
+      
       const id = nanoid(10);
       const result = await pool.query(
         'INSERT INTO resource_files (id, folder_id, name, original_name, file_path, file_type, file_size, description) VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *',
-        [id, req.params.id, file.filename, decodedName, `/uploads/resources/${file.filename}`, file.mimetype, file.size, '']
+        [id, req.params.id, file.filename, originalName, `/uploads/resources/${file.filename}`, file.mimetype, file.size, '']
       );
       inserted.push(result.rows[0]);
     }

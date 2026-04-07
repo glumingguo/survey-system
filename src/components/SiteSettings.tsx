@@ -31,6 +31,57 @@ const ICON_OPTIONS = [
   { label: '🏆 奖杯', value: '🏆' },
 ];
 
+// 辅助函数：将 ColorPicker 对象转换为十六进制字符串
+function normalizeColor(color: any): string {
+  if (!color) return '#f0f2f5';
+  if (typeof color === 'string') return color;
+  // 处理 Ant Design Color 对象
+  if (color.metaColor && typeof color.metaColor === 'object') {
+    const { r, g, b } = color.metaColor;
+    if (r !== undefined && g !== undefined && b !== undefined) {
+      return `#${[r, g, b].map((x: number) => x.toString(16).padStart(2, '0')).join('')}`;
+    }
+  }
+  // 如果是其他对象，尝试提取 _v 或直接返回
+  if (color._v) return color._v;
+  return '#f0f2f5';
+}
+
+// 辅助函数：转换旧格式数据到新格式
+function normalizeSettingsData(data: any): any {
+  if (!data || typeof data !== 'object') return {};
+  
+  // 规范化 moduleConfigs
+  const moduleConfigs = data.moduleConfigs || {};
+  const moduleImages = data.moduleImages || {};
+  const moduleIcons = data.moduleIcons || {};
+  
+  ['resources', 'albums', 'surveys'].forEach(key => {
+    if (!moduleConfigs[key]) {
+      moduleConfigs[key] = {};
+    }
+    if (!moduleConfigs[key].image && moduleImages[key]) {
+      moduleConfigs[key].image = moduleImages[key];
+    }
+    if (!moduleConfigs[key].icon && moduleIcons[key]) {
+      moduleConfigs[key].icon = moduleIcons[key];
+    }
+  });
+  
+  // 规范化 homePageStyle
+  const homePageStyle = data.homePageStyle || {};
+  const normalizedHomePageStyle = {
+    ...homePageStyle,
+    backgroundColor: normalizeColor(homePageStyle.backgroundColor),
+  };
+  
+  return {
+    ...data,
+    moduleConfigs,
+    homePageStyle: normalizedHomePageStyle,
+  };
+}
+
 const SiteSettingsPage: React.FC = () => {
   const [form] = Form.useForm();
   const [loading, setLoading] = useState(true);
@@ -61,12 +112,14 @@ const SiteSettingsPage: React.FC = () => {
       if (!settingsData || typeof settingsData !== 'object') {
         settingsData = {};
       }
-      setSettings(settingsData);
+      // 规范化数据（处理旧格式）
+      const normalizedData = normalizeSettingsData(settingsData);
+      setSettings(normalizedData);
       setAnnouncements(annData.map(a => ({ id: a.id, title: a.title })));
       form.setFieldsValue({
-        siteName: settingsData.siteName || '',
-        siteSubtitle: settingsData.siteSubtitle || '',
-        registerMode: settingsData.registerMode || 'open',
+        siteName: normalizedData.siteName || '',
+        siteSubtitle: normalizedData.siteSubtitle || '',
+        registerMode: normalizedData.registerMode || 'open',
       });
     } catch (err) {
       console.error('加载设置失败:', err);
@@ -551,7 +604,8 @@ const SiteSettingsPage: React.FC = () => {
           onFinish={(values) => handleSave({
             ...settings,
             homePageStyle: {
-              backgroundColor: values.backgroundColor,
+              // 确保 backgroundColor 是字符串
+              backgroundColor: normalizeColor(values.backgroundColor),
               backgroundImage: settings.homePageStyle?.backgroundImage,
               backgroundOpacity: values.backgroundOpacity,
               moduleCount: values.moduleCount,
