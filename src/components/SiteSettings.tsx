@@ -29,47 +29,7 @@ const ICON_OPTIONS = [
   { label: '🔥 火焰', value: '🔥' },
   { label: '🎁 礼物', value: '🎁' },
   { label: '🏆 奖杯', value: '🏆' },
-  { label: '💬 留言', value: '💬' },
-  { label: '📅 日历', value: '📅' },
-  { label: '📊 统计', value: '📊' },
-  { label: '🎬 视频', value: '🎬' },
-  { label: '🎵 音乐', value: '🎵' },
-  { label: '📞 联系', value: '📞' },
-  { label: '🏠 主页', value: '🏠' },
-  { label: '👥 团队', value: '👥' },
-  { label: '🔔 通知', value: '🔔' },
-  { label: '📌 置顶', value: '📌' },
-  { label: '🎮 游戏', value: '🎮' },
-  { label: '📚 读书', value: '📚' },
-  { label: '✏️ 写作', value: '✏️' },
-  { label: '🛒 商城', value: '🛒' },
 ];
-
-// 预设模块配置
-const PRESET_MODULES = [
-  { key: 'resources', label: '资源库', icon: '📁' },
-  { key: 'albums', label: '相册', icon: '🖼️' },
-  { key: 'surveys', label: '问卷', icon: '📝' },
-  { key: 'messages', label: '留言板', icon: '💬' },
-  { key: 'announcements', label: '公告通知', icon: '📢' },
-  { key: 'calendar', label: '日历', icon: '📅' },
-  { key: 'statistics', label: '数据统计', icon: '📊' },
-  { key: 'gallery', label: '图库', icon: '🎨' },
-  { key: 'about', label: '关于我们', icon: '👤' },
-];
-
-// 九宫格布局配置
-const GRID_LAYOUTS = {
-  1: [1],
-  2: [1, 1],
-  3: [1, 1, 1],
-  4: [1, 1, 1, 1],
-  5: [2, 3],
-  6: [2, 2, 2],
-  7: [2, 2, 3],
-  8: [2, 3, 3],
-  9: [3, 3, 3],
-};
 
 const SiteSettingsPage: React.FC = () => {
   const [form] = Form.useForm();
@@ -129,21 +89,37 @@ const SiteSettingsPage: React.FC = () => {
     }
   };
 
-  const handleImageUpload = async (file: File, field: keyof SiteSettings | `moduleImages.${string}` | `homePageStyle.${string}`) => {
+  const handleImageUpload = async (file: File, field: keyof SiteSettings | `moduleConfigs.${string}.${string}` | `homePageStyle.${string}`) => {
     try {
       const url = await uploadSiteImage(file);
       let updated = { ...settings };
 
       if (typeof field === 'string' && field.includes('.')) {
-        // 处理嵌套属性，如 moduleImages.resources 或 homePageStyle.backgroundImage
-        const [parent, child] = field.split('.') as [string, string];
-        updated = {
-          ...settings,
-          [parent]: {
-            ...(settings as any)[parent],
-            [child]: url
-          }
-        };
+        const parts = field.split('.');
+        if (parts.length === 3) {
+          // 处理 moduleConfigs.xxx.image 格式
+          const [parent, moduleKey, child] = parts as [string, string, string];
+          updated = {
+            ...settings,
+            [parent]: {
+              ...(settings as any)[parent],
+              [moduleKey]: {
+                ...(settings as any)[parent]?.[moduleKey],
+                [child]: url
+              }
+            }
+          };
+        } else {
+          // 处理嵌套属性，如 homePageStyle.backgroundImage
+          const [parent, child] = parts as [string, string];
+          updated = {
+            ...settings,
+            [parent]: {
+              ...(settings as any)[parent],
+              [child]: url
+            }
+          };
+        }
       } else {
         updated = { ...settings, [field]: url };
       }
@@ -332,63 +308,93 @@ const SiteSettingsPage: React.FC = () => {
         </Form>
       </Card>
 
-      <Card title="首页模块配置（九宫格）" style={{ marginBottom: 24 }}>
+      {/* 首页模块配置（合并图标和图片） */}
+      <Card title="首页模块配置" style={{ marginBottom: 24 }}>
         <Text type="secondary" style={{ display: 'block', marginBottom: 16 }}>
-          设置首页显示的模块。最多支持9个模块，可选择预设模块或自定义模块名称和图标。
+          设置首页模块卡片的图标或图片（图片优先于 emoji 图标显示）。
         </Text>
-        
-        {/* 模块数量选择 */}
-        <Form
-          layout="vertical"
-          initialValues={{ activeModules: settings.moduleIcons ? Object.keys(settings.moduleIcons).slice(0, settings.homePageStyle?.moduleCount || 3) : ['resources', 'albums', 'surveys'] }}
-          onFinish={(values) => handleSave({ ...settings, moduleIcons: values })}
-        >
-          <Divider orientation="left">选择要显示的模块（最多9个）</Divider>
-          <Row gutter={12}>
-            {PRESET_MODULES.map((module) => (
-              <Col span={8} key={module.key}>
-                <Form.Item name="activeModules" valuePropName="checked" noStyle>
-                  <Switch 
-                    checkedChildren={module.label} 
-                    unCheckedChildren={module.label}
-                    defaultChecked={['resources', 'albums', 'surveys'].includes(module.key)}
-                    onChange={(checked) => {
-                      const currentIcons = { ...(settings.moduleIcons || {}) };
-                      if (checked) {
-                        currentIcons[module.key] = module.icon;
-                      } else {
-                        delete currentIcons[module.key];
-                      }
-                      handleSave({ ...settings, moduleIcons: currentIcons });
-                    }}
-                  />
-                </Form.Item>
-              </Col>
-            ))}
-          </Row>
-          
-          <Divider orientation="left">模块图标自定义</Divider>
-          <Row gutter={12}>
-            {Object.entries(settings.moduleIcons || {}).map(([key, icon]) => {
-              const preset = PRESET_MODULES.find(m => m.key === key);
-              const label = preset?.label || key;
-              return (
-                <Col span={8} key={key}>
-                  <Form.Item label={`${label} 图标`} name={key}>
-                    <Select placeholder="选择图标" allowClear>
+        <Row gutter={16}>
+          {['resources', 'albums', 'surveys'].map((module) => {
+            const moduleLabels = { resources: '资源库', albums: '相册', surveys: '问卷' };
+            const moduleName = module as 'resources' | 'albums' | 'surveys';
+            const config = settings.moduleConfigs?.[moduleName] || {};
+            return (
+              <Col span={8} key={module}>
+                <Card size="small" style={{ marginBottom: 8 }}>
+                  <Text strong>{moduleLabels[module as keyof typeof moduleLabels]}</Text>
+                  <Divider style={{ margin: '8px 0' }} />
+                  <div style={{ marginBottom: 8 }}>
+                    <Text type="secondary" style={{ fontSize: 12 }}>图标（Emoji）</Text>
+                    <Select
+                      placeholder="选择图标"
+                      allowClear
+                      style={{ width: '100%', marginTop: 4 }}
+                      value={config.icon}
+                      onChange={(value) => {
+                        const updated = {
+                          ...settings,
+                          moduleConfigs: {
+                            ...settings.moduleConfigs,
+                            [moduleName]: { ...config, icon: value, image: config.image }
+                          }
+                        };
+                        setSettings(updated);
+                        updateSiteSettings(updated);
+                      }}
+                    >
                       {ICON_OPTIONS.map(opt => (
                         <Option key={opt.value} value={opt.value}>{opt.label}</Option>
                       ))}
                     </Select>
-                  </Form.Item>
-                </Col>
-              );
-            })}
-          </Row>
-          <Button type="primary" htmlType="submit" loading={saving}>
-            保存模块图标
-          </Button>
-        </Form>
+                  </div>
+                  <div>
+                    <Text type="secondary" style={{ fontSize: 12 }}>图片（优先于图标）</Text>
+                    <div style={{ marginTop: 4, display: 'flex', gap: 8, alignItems: 'center' }}>
+                      <Upload
+                        beforeUpload={(file) => {
+                          handleImageUpload(file, `moduleConfigs.${module}.image` as any);
+                          return false;
+                        }}
+                        showUploadList={false}
+                        accept="image/*"
+                      >
+                        <Button icon={<UploadOutlined />} size="small">上传</Button>
+                      </Upload>
+                      {config.image && (
+                        <Button
+                          type="link"
+                          danger
+                          size="small"
+                          onClick={async () => {
+                            const updated = {
+                              ...settings,
+                              moduleConfigs: {
+                                ...settings.moduleConfigs,
+                                [moduleName]: { ...config, icon: config.icon, image: '' }
+                              }
+                            };
+                            setSettings(updated);
+                            await updateSiteSettings(updated);
+                            message.success('已清除');
+                          }}
+                        >
+                          清除
+                        </Button>
+                      )}
+                    </div>
+                    <div style={{ marginTop: 8, height: 48, background: '#f5f5f5', borderRadius: 4, overflow: 'hidden', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                      {config.image ? (
+                        <Image src={`${API_BASE}${config.image}`} style={{ maxWidth: 64, maxHeight: 48, objectFit: 'contain' }} preview={false} />
+                      ) : (
+                        <Text type="secondary" style={{ fontSize: 12 }}>{config.icon || '未设置'}</Text>
+                      )}
+                    </div>
+                  </div>
+                </Card>
+              </Col>
+            );
+          })}
+        </Row>
       </Card>
 
       {/* 首页标题样式配置 */}
@@ -529,64 +535,6 @@ const SiteSettingsPage: React.FC = () => {
         </Form>
       </Card>
 
-      {/* 首页模块图片配置 */}
-      <Card title="首页模块图片（可选）" style={{ marginBottom: 24 }}>
-        <Text type="secondary" style={{ display: 'block', marginBottom: 16 }}>
-          为已启用的模块图标卡片设置图片（优先于 emoji 显示）。
-        </Text>
-        <Row gutter={16}>
-          {Object.entries(settings.moduleIcons || {}).map(([key, icon]) => {
-            const preset = PRESET_MODULES.find(m => m.key === key);
-            const label = preset?.label || key;
-            const imageUrl = settings.moduleImages?.[key];
-            return (
-              <Col span={8} key={key}>
-                <Card size="small" style={{ marginBottom: 8 }}>
-                  <Text strong>{label} {icon}</Text>
-                  <div style={{ marginTop: 8, display: 'flex', gap: 8, alignItems: 'center' }}>
-                    <Upload
-                      beforeUpload={(file) => {
-                        handleImageUpload(file, `moduleImages.${key}` as any);
-                        return false;
-                      }}
-                      showUploadList={false}
-                      accept="image/*"
-                    >
-                      <Button icon={<UploadOutlined />} size="small">上传</Button>
-                    </Upload>
-                    {imageUrl && (
-                      <Button
-                        type="link"
-                        danger
-                        size="small"
-                        onClick={async () => {
-                          const updated = {
-                            ...settings,
-                            moduleImages: { ...settings.moduleImages, [key]: '' }
-                          };
-                          setSettings(updated);
-                          await updateSiteSettings(updated);
-                          message.success('已清除');
-                        }}
-                      >
-                        清除
-                      </Button>
-                    )}
-                  </div>
-                  <div style={{ marginTop: 8, height: 60, background: '#f5f5f5', borderRadius: 4, overflow: 'hidden', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                    {imageUrl ? (
-                      <Image src={`${API_BASE}${imageUrl}`} style={{ maxWidth: 80, maxHeight: 60, objectFit: 'contain' }} preview={false} />
-                    ) : (
-                      <Text type="secondary" style={{ fontSize: 12 }}>未设置</Text>
-                    )}
-                  </div>
-                </Card>
-              </Col>
-            );
-          })}
-        </Row>
-      </Card>
-
       {/* 首页背景配置 */}
       <Card title="首页背景样式" style={{ marginBottom: 24 }}>
         <Text type="secondary" style={{ display: 'block', marginBottom: 16 }}>
@@ -623,12 +571,6 @@ const SiteSettingsPage: React.FC = () => {
                   <Option value={1}>1个模块</Option>
                   <Option value={2}>2个模块</Option>
                   <Option value={3}>3个模块</Option>
-                  <Option value={4}>4个模块</Option>
-                  <Option value={5}>5个模块</Option>
-                  <Option value={6}>6个模块</Option>
-                  <Option value={7}>7个模块</Option>
-                  <Option value={8}>8个模块</Option>
-                  <Option value={9}>9个模块</Option>
                 </Select>
               </Form.Item>
             </Col>

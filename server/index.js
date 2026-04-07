@@ -13,6 +13,23 @@ const bcrypt = require('bcryptjs');
 const { Pool } = require('pg');
 
 // 调试：打印环境变量
+
+// 解码文件名（处理浏览器发送的 percent-encoded 文件名）
+function decodeFileName(filename) {
+  if (!filename) return filename;
+  try {
+    // 检查是否包含百分号编码
+    if (filename.includes('%')) {
+      // 解码 URI 编码的中文字符
+      return decodeURIComponent(filename);
+    }
+    // 如果已经是正常字符串，直接返回
+    return filename;
+  } catch (e) {
+    console.error('文件名解码失败:', e);
+    return filename;
+  }
+}
 console.log('环境变量加载测试:');
 console.log('DATABASE_URL:', process.env.DATABASE_URL ? '已设置' : '未设置');
 console.log('JWT_SECRET:', process.env.JWT_SECRET ? '已设置' : '未设置');
@@ -53,6 +70,8 @@ async function initDB() {
         status VARCHAR(20) DEFAULT 'active',
         group_ids JSONB DEFAULT '[]',
         avatar TEXT,
+        last_login TIMESTAMPTZ,
+        login_count INTEGER DEFAULT 0,
         created_at TIMESTAMPTZ DEFAULT NOW()
       );
 
@@ -304,6 +323,19 @@ app.post('/api/auth/register', async (req, res) => {
       return res.status(400).json({ error: '用户名或邮箱已存在' });
     }
 
+    // 检查黑名单
+    try {
+      const blacklistCheck = await pool.query(
+        "SELECT * FROM blacklist WHERE (type = 'email' AND value = $1) OR (type = 'username' AND value = $2)",
+        [email, username]
+      );
+      if (blacklistCheck.rows.length > 0) {
+        return res.status(403).json({ error: '禁止注册' });
+      }
+    } catch (e) {
+      // 黑名单表可能不存在，跳过检查
+    }
+
     // 获取注册设置
     const siteSettingsResult = await pool.query("SELECT value FROM settings WHERE key = 'siteSettings'");
     const siteSettings = siteSettingsResult.rows[0] ? siteSettingsResult.rows[0].value : {};
@@ -386,6 +418,12 @@ app.post('/api/auth/login', async (req, res) => {
       await pool.query('UPDATE users SET role = $1 WHERE id = $2', ['admin', user.id]);
       user.role = 'admin';
     }
+
+    // 更新登录时间和登录次数
+    await pool.query(
+      'UPDATE users SET last_login = NOW(), login_count = COALESCE(login_count, 0) + 1 WHERE id = $1',
+      [user.id]
+    );
 
     const token = jwt.sign(
       { id: user.id, username: user.username, role: user.role },
@@ -641,6 +679,23 @@ app.get('/api/surveys', async (req, res) => {
   }
 });
 
+// 获取我的问卷列表（必须在 /api/surveys/:id 之前定义）
+app.get('/api/surveys/my', authenticateToken, async (req, res) => {
+  try {
+    const result = await pool.query('SELECT * FROM surveys WHERE user_id = $1 ORDER BY created_at DESC', [req.user.id]);
+    const surveys = result.rows.map(row => ({
+      ...row.data,
+      id: row.id,
+      userId: row.user_id,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at
+    }));
+    res.json(surveys);
+  } catch (error) {
+    res.status(500).json({ error: '获取问卷列表失败' });
+  }
+});
+
 // 获取问卷详情
 app.get('/api/surveys/:id', optionalAuth, async (req, res) => {
   try {
@@ -726,23 +781,6 @@ app.delete('/api/surveys/:id', authenticateToken, async (req, res) => {
     res.json({ message: '删除成功' });
   } catch (error) {
     res.status(500).json({ error: '删除问卷失败' });
-  }
-});
-
-// 获取我的问卷列表
-app.get('/api/surveys/my', authenticateToken, async (req, res) => {
-  try {
-    const result = await pool.query('SELECT * FROM surveys WHERE user_id = $1 ORDER BY created_at DESC', [req.user.id]);
-    const surveys = result.rows.map(row => ({
-      ...row.data,
-      id: row.id,
-      userId: row.user_id,
-      createdAt: row.created_at,
-      updatedAt: row.updated_at
-    }));
-    res.json(surveys);
-  } catch (error) {
-    res.status(500).json({ error: '获取问卷列表失败' });
   }
 });
 
@@ -1211,10 +1249,9 @@ app.get('/api/site-settings', async (req, res) => {
       heroBanner: settings.heroBanner || '',
       registerMode: settings.registerMode || 'open',
       menuLabels: settings.menuLabels || {},
-      moduleIcons: settings.moduleIcons || {},
+      moduleConfigs: settings.moduleConfigs || {},
       heroTitleStyle: settings.heroTitleStyle || {},
       marqueeConfig: settings.marqueeConfig || {},
-      moduleImages: settings.moduleImages || {},
       homePageStyle: settings.homePageStyle || {},
     });
   } catch (error) {
@@ -1421,6 +1458,7 @@ app.get('/api/admin/users', authenticateToken, async (req, res) => {
     const result = await pool.query(`
       SELECT
         u.id, u.username, u.email, u.role, u.status, u.group_ids, u.avatar, u.created_at,
+        u.last_login, u.login_count,
         p.nickname, p.gender, p.age, p.birthday, p.occupation, p.marital_status,
         p.province, p.city, p.district, p.phone, p.wechat, p.qq, p.bio,
         p.hobbies, p.interests, p.education, p.income_range,
@@ -1591,6 +1629,133 @@ app.delete('/api/admin/users/:id', authenticateToken, async (req, res) => {
   }
 });
 
+// ========== 批量操作 API ==========
+
+// 批量通过审核
+app.post('/api/admin/users/batch-approve', authenticateToken, async (req, res) => {
+  if (req.user.role !== 'admin') return res.status(403).json({ error: '需要管理员权限' });
+  try {
+    const { user_ids } = req.body;
+    if (!user_ids || !Array.isArray(user_ids) || user_ids.length === 0) {
+      return res.status(400).json({ error: '请选择要操作的用户' });
+    }
+    await pool.query(
+      'UPDATE users SET status=$1 WHERE id = ANY($2) AND role != $3',
+      ['active', user_ids, 'admin']
+    );
+    res.json({ message: '批量审核成功' });
+  } catch (error) {
+    res.status(500).json({ error: '批量审核失败' });
+  }
+});
+
+// 批量禁用用户
+app.post('/api/admin/users/batch-disable', authenticateToken, async (req, res) => {
+  if (req.user.role !== 'admin') return res.status(403).json({ error: '需要管理员权限' });
+  try {
+    const { user_ids } = req.body;
+    if (!user_ids || !Array.isArray(user_ids) || user_ids.length === 0) {
+      return res.status(400).json({ error: '请选择要操作的用户' });
+    }
+    // 不能禁用自己
+    const filteredIds = user_ids.filter(id => id !== req.user.id);
+    await pool.query(
+      'UPDATE users SET status=$1 WHERE id = ANY($2) AND role != $3',
+      ['banned', filteredIds, 'admin']
+    );
+    res.json({ message: '批量禁用成功' });
+  } catch (error) {
+    res.status(500).json({ error: '批量禁用失败' });
+  }
+});
+
+// 批量删除用户
+app.post('/api/admin/users/batch-delete', authenticateToken, async (req, res) => {
+  if (req.user.role !== 'admin') return res.status(403).json({ error: '需要管理员权限' });
+  try {
+    const { user_ids } = req.body;
+    if (!user_ids || !Array.isArray(user_ids) || user_ids.length === 0) {
+      return res.status(400).json({ error: '请选择要操作的用户' });
+    }
+    // 不能删除自己，且不能删除其他管理员
+    const filteredIds = user_ids.filter(id => id !== req.user.id);
+    await pool.query(
+      'DELETE FROM users WHERE id = ANY($1) AND role != $2',
+      [filteredIds, 'admin']
+    );
+    res.json({ message: '批量删除成功' });
+  } catch (error) {
+    res.status(500).json({ error: '批量删除失败' });
+  }
+});
+
+// ========== 黑名单 API ==========
+
+// 创建黑名单表（如果不存在）
+const initBlacklistTable = async () => {
+  try {
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS blacklist (
+        id VARCHAR(20) PRIMARY KEY,
+        type VARCHAR(20) NOT NULL CHECK (type IN ('email', 'ip', 'username')),
+        value VARCHAR(255) NOT NULL UNIQUE,
+        reason TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+    // 创建索引
+    await pool.query('CREATE INDEX IF NOT EXISTS idx_blacklist_type ON blacklist(type)');
+  } catch (error) {
+    console.error('创建黑名单表失败:', error);
+  }
+};
+initBlacklistTable();
+
+// 获取黑名单列表
+app.get('/api/admin/blacklist', authenticateToken, async (req, res) => {
+  if (req.user.role !== 'admin') return res.status(403).json({ error: '需要管理员权限' });
+  try {
+    const result = await pool.query('SELECT * FROM blacklist ORDER BY created_at DESC');
+    res.json(result.rows);
+  } catch (error) {
+    res.status(500).json({ error: '获取黑名单失败' });
+  }
+});
+
+// 添加到黑名单
+app.post('/api/admin/blacklist', authenticateToken, async (req, res) => {
+  if (req.user.role !== 'admin') return res.status(403).json({ error: '需要管理员权限' });
+  try {
+    const { type, value, reason } = req.body;
+    if (!type || !value) return res.status(400).json({ error: '类型和值不能为空' });
+    if (!['email', 'ip', 'username'].includes(type)) {
+      return res.status(400).json({ error: '无效的类型' });
+    }
+    const id = nanoid(10);
+    const result = await pool.query(
+      'INSERT INTO blacklist (id, type, value, reason) VALUES ($1, $2, $3, $4) RETURNING *',
+      [id, type, value, reason || '']
+    );
+    res.json(result.rows[0]);
+  } catch (error) {
+    if (error.code === '23505') {
+      return res.status(400).json({ error: '该条目已在黑名单中' });
+    }
+    res.status(500).json({ error: '添加黑名单失败' });
+  }
+});
+
+// 从黑名单移除
+app.delete('/api/admin/blacklist/:id', authenticateToken, async (req, res) => {
+  if (req.user.role !== 'admin') return res.status(403).json({ error: '需要管理员权限' });
+  try {
+    await pool.query('DELETE FROM blacklist WHERE id=$1', [req.params.id]);
+    res.json({ message: '已从黑名单移除' });
+  } catch (error) {
+    res.status(500).json({ error: '移除失败' });
+  }
+});
+
 // ========== 邀请码 API ==========
 
 // 获取邀请码列表（管理员）
@@ -1755,24 +1920,64 @@ const resourceUpload = multer({
       cb(null, dir);
     },
     filename: (req, file, cb) => {
-      cb(null, Date.now() + '-' + Math.round(Math.random() * 1E9) + path.extname(file.originalname));
+      // 对原始文件名进行安全处理：解码后再取扩展名
+      const decodedName = decodeFileName(file.originalname);
+      const ext = path.extname(decodedName) || path.extname(file.originalname);
+      cb(null, Date.now() + '-' + Math.round(Math.random() * 1E9) + ext);
     }
   }),
   limits: { fileSize: 50 * 1024 * 1024 }
 });
 
+// 上传文件到资源文件夹（管理员）- 单文件
 app.post('/api/admin/resource-folders/:id/files', authenticateToken, resourceUpload.single('file'), async (req, res) => {
   if (req.user.role !== 'admin') return res.status(403).json({ error: '需要管理员权限' });
   if (!req.file) return res.status(400).json({ error: '没有上传文件' });
   try {
     const id = nanoid(10);
+    const decodedName = decodeFileName(req.file.originalname);
     const result = await pool.query(
       'INSERT INTO resource_files (id, folder_id, name, original_name, file_path, file_type, file_size, description) VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *',
-      [id, req.params.id, req.file.filename, req.file.originalname, `/uploads/resources/${req.file.filename}`, req.file.mimetype, req.file.size, req.body.description || '']
+      [id, req.params.id, req.file.filename, decodedName, `/uploads/resources/${req.file.filename}`, req.file.mimetype, req.file.size, req.body.description || '']
     );
     res.json(result.rows[0]);
   } catch (error) {
     res.status(500).json({ error: '上传文件失败' });
+  }
+});
+
+// 批量上传文件到资源文件夹（管理员）
+app.post('/api/admin/resource-folders/:id/files/batch', authenticateToken, resourceUpload.array('files', 50), async (req, res) => {
+  if (req.user.role !== 'admin') return res.status(403).json({ error: '需要管理员权限' });
+  if (!req.files || req.files.length === 0) return res.status(400).json({ error: '没有上传文件' });
+  try {
+    const inserted = [];
+    // 使用 Set 来跟踪已插入的文件，避免重复
+    const insertedNames = new Set();
+    
+    for (const file of req.files) {
+      // 解码文件名
+      const decodedName = decodeFileName(file.originalname);
+      
+      // 避免完全相同的文件名被重复插入（同一次上传中）
+      const fileKey = `${file.size}-${decodedName}`;
+      if (insertedNames.has(fileKey)) {
+        console.log(`跳过重复文件: ${decodedName}`);
+        continue;
+      }
+      insertedNames.add(fileKey);
+      
+      const id = nanoid(10);
+      const result = await pool.query(
+        'INSERT INTO resource_files (id, folder_id, name, original_name, file_path, file_type, file_size, description) VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *',
+        [id, req.params.id, file.filename, decodedName, `/uploads/resources/${file.filename}`, file.mimetype, file.size, '']
+      );
+      inserted.push(result.rows[0]);
+    }
+    res.json(inserted);
+  } catch (error) {
+    console.error('批量上传文件失败:', error);
+    res.status(500).json({ error: '批量上传文件失败' });
   }
 });
 
@@ -2095,7 +2300,10 @@ const photoUpload = multer({
       cb(null, dir);
     },
     filename: (req, file, cb) => {
-      cb(null, Date.now() + '-' + Math.round(Math.random() * 1E9) + path.extname(file.originalname));
+      // 对原始文件名进行安全处理：解码后再取扩展名
+      const decodedName = decodeFileName(file.originalname);
+      const ext = path.extname(decodedName) || path.extname(file.originalname);
+      cb(null, Date.now() + '-' + Math.round(Math.random() * 1E9) + ext);
     }
   }),
   limits: { fileSize: 20 * 1024 * 1024 },
@@ -2110,11 +2318,25 @@ app.post('/api/admin/albums/:id/photos', authenticateToken, photoUpload.array('p
   if (!req.files || req.files.length === 0) return res.status(400).json({ error: '没有上传照片' });
   try {
     const inserted = [];
+    // 使用 Set 来跟踪已插入的文件，避免重复
+    const insertedNames = new Set();
+    
     for (const file of req.files) {
+      // 解码文件名
+      const decodedName = decodeFileName(file.originalname);
+      
+      // 避免完全相同的文件名被重复插入（同一次上传中）
+      const fileKey = `${file.size}-${decodedName}`;
+      if (insertedNames.has(fileKey)) {
+        console.log(`跳过重复照片: ${decodedName}`);
+        continue;
+      }
+      insertedNames.add(fileKey);
+      
       const id = nanoid(10);
       const result = await pool.query(
         'INSERT INTO album_photos (id, album_id, name, file_path) VALUES ($1,$2,$3,$4) RETURNING *',
-        [id, req.params.id, file.originalname, `/uploads/albums/${file.filename}`]
+        [id, req.params.id, decodedName, `/uploads/albums/${file.filename}`]
       );
       inserted.push(result.rows[0]);
     }

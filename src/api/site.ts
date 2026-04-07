@@ -25,11 +25,23 @@ export interface SiteSettings {
     siteSettings?: string;
     emailSettings?: string;
   };
-  // 首页模块图标（emoji 或 Ant Design 图标名称）
-  moduleIcons?: {
-    resources?: string;
-    albums?: string;
-    surveys?: string;
+  // 首页模块配置（合并图标和图片）
+  moduleConfigs?: {
+    resources?: {
+      icon?: string;      // emoji 图标（默认）
+      image?: string;    // 可选图片（优先于 icon 显示）
+      label?: string;    // 可选自定义标签
+    };
+    albums?: {
+      icon?: string;
+      image?: string;
+      label?: string;
+    };
+    surveys?: {
+      icon?: string;
+      image?: string;
+      label?: string;
+    };
   };
   // 首页标题样式（显示在横幅上方）
   heroTitleStyle?: {
@@ -48,12 +60,6 @@ export interface SiteSettings {
     color?: string; // 文字颜色，默认 #fff
     background?: string; // 背景色，默认 rgba(0,0,0,0.5)
     speed?: number; // 滚动速度（秒），默认 20
-  };
-  // 首页模块图片（优先于 emoji 图标）
-  moduleImages?: {
-    resources?: string;
-    albums?: string;
-    surveys?: string;
   };
   // 首页背景配置
   homePageStyle?: {
@@ -231,6 +237,16 @@ export const uploadResourceFile = async (folderId: string, file: File, descripti
   formData.append('file', file);
   if (description) formData.append('description', description);
   const res = await api.post(`/api/admin/resource-folders/${folderId}/files`, formData, {
+    headers: { 'Content-Type': 'multipart/form-data' }
+  });
+  return res.data;
+};
+
+// 批量上传资源文件
+export const uploadResourceFiles = async (folderId: string, files: File[]): Promise<ResourceFile[]> => {
+  const formData = new FormData();
+  files.forEach(f => formData.append('files', f));
+  const res = await api.post(`/api/admin/resource-folders/${folderId}/files/batch`, formData, {
     headers: { 'Content-Type': 'multipart/form-data' }
   });
   return res.data;

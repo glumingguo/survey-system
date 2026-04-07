@@ -1,15 +1,19 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import {
   Card, Table, Button, Input, Select, Tag, Space, Modal, Descriptions,
-  Avatar, Typography, Row, Col, message, Drawer, Form, DatePicker, Tabs
+  Avatar, Typography, Row, Col, message, Drawer, Form, Tabs, Badge,
+  Popconfirm, Tooltip, Statistic, Progress, List, Checkbox
 } from 'antd';
-import { SearchOutlined, ExportOutlined, EyeOutlined, UserOutlined, FilterOutlined } from '@ant-design/icons';
+import {
+  SearchOutlined, ExportOutlined, EyeOutlined, UserOutlined, FilterOutlined,
+  CheckOutlined, StopOutlined, DeleteOutlined, TeamOutlined, PlusOutlined,
+  EditOutlined, LockOutlined, UnlockOutlined, ClockCircleOutlined, RiseOutlined
+} from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import api from '../api/auth';
 
 const { Title, Text } = Typography;
 const { Option } = Select;
-const { RangePicker } = DatePicker;
 
 interface UserRecord {
   id: string;
@@ -35,11 +39,33 @@ interface UserRecord {
   income_range?: string;
   profile_completed?: boolean;
   created_at: string;
+  last_login?: string;
+  login_count?: number;
+  group_ids?: string[];
+}
+
+interface UserGroup {
+  id: string;
+  name: string;
+  description?: string;
+  color: string;
+  permissions?: string[];
+  created_at: string;
+}
+
+interface BlacklistItem {
+  id: string;
+  type: 'email' | 'ip' | 'username';
+  value: string;
+  reason?: string;
+  created_at: string;
 }
 
 const MemberManagement: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [users, setUsers] = useState<UserRecord[]>([]);
+  const [groups, setGroups] = useState<UserGroup[]>([]);
+  const [blacklist, setBlacklist] = useState<BlacklistItem[]>([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(20);
@@ -47,11 +73,22 @@ const MemberManagement: React.FC = () => {
   const [detailVisible, setDetailVisible] = useState(false);
   const [filterVisible, setFilterVisible] = useState(false);
   const [filters, setFilters] = useState<Record<string, string>>({});
+  const [selectedRowKeys, setSelectedRowKeys] = useState<React.Key[]>([]);
+  const [searchText, setSearchText] = useState('');
+  const [groupModalVisible, setGroupModalVisible] = useState(false);
+  const [editingGroup, setEditingGroup] = useState<UserGroup | null>(null);
+  const [blacklistModalVisible, setBlacklistModalVisible] = useState(false);
+  const [blacklistForm] = Form.useForm();
+  const [assignGroupUserId, setAssignGroupUserId] = useState<string | null>(null);
+  const [selectedGroupIds, setSelectedGroupIds] = useState<string[]>([]);
 
   const formRef = React.useRef<any>(null);
+  const groupFormRef = React.useRef<any>(null);
 
   useEffect(() => {
     loadUsers();
+    loadGroups();
+    loadBlacklist();
   }, [page, pageSize, filters]);
 
   const loadUsers = async () => {
@@ -62,6 +99,9 @@ const MemberManagement: React.FC = () => {
         page_size: String(pageSize),
         ...filters,
       };
+      if (searchText) {
+        params.search = searchText;
+      }
       const response = await api.get('/api/admin/users', { params });
       setUsers(response.data.users || []);
       setTotal(response.data.total || 0);
@@ -69,6 +109,24 @@ const MemberManagement: React.FC = () => {
       message.error(error.response?.data?.error || '加载会员列表失败');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const loadGroups = async () => {
+    try {
+      const response = await api.get('/api/admin/groups');
+      setGroups(response.data);
+    } catch {
+      // 分组功能可能未启用
+    }
+  };
+
+  const loadBlacklist = async () => {
+    try {
+      const response = await api.get('/api/admin/blacklist');
+      setBlacklist(response.data);
+    } catch {
+      // 黑名单功能可能未启用
     }
   };
 
@@ -84,9 +142,15 @@ const MemberManagement: React.FC = () => {
     formRef.current?.resetFields();
   };
 
+  const handleSearchText = (value: string) => {
+    setSearchText(value);
+    setPage(1);
+  };
+
   const handleExport = async (format: 'csv' | 'json') => {
     try {
       const params: Record<string, string> = { format, ...filters };
+      if (searchText) params.search = searchText;
       const response = await api.get('/api/admin/users/export', { params });
 
       if (format === 'json') {
@@ -98,11 +162,126 @@ const MemberManagement: React.FC = () => {
         a.click();
         URL.revokeObjectURL(url);
       } else {
-        // CSV 已经由后端返回
         message.success('导出成功');
       }
-    } catch (error: any) {
+    } catch {
       message.error('导出失败');
+    }
+  };
+
+  // 批量操作
+  const handleBatchAction = async (action: string) => {
+    if (selectedRowKeys.length === 0) {
+      message.warning('请先选择用户');
+      return;
+    }
+
+    try {
+      if (action === 'approve') {
+        await api.post('/api/admin/users/batch-approve', { user_ids: selectedRowKeys });
+        message.success(`已通过 ${selectedRowKeys.length} 个用户的审核`);
+      } else if (action === 'disable') {
+        await api.post('/api/admin/users/batch-disable', { user_ids: selectedRowKeys });
+        message.success(`已禁用 ${selectedRowKeys.length} 个用户`);
+      } else if (action === 'delete') {
+        await api.post('/api/admin/users/batch-delete', { user_ids: selectedRowKeys });
+        message.success(`已删除 ${selectedRowKeys.length} 个用户`);
+      }
+      setSelectedRowKeys([]);
+      loadUsers();
+    } catch (error: any) {
+      message.error(error.response?.data?.error || '操作失败');
+    }
+  };
+
+  // 用户状态操作
+  const handleStatusChange = async (userId: string, status: string) => {
+    try {
+      await api.put(`/api/admin/users/${userId}/status`, { status });
+      message.success('状态已更新');
+      loadUsers();
+    } catch {
+      message.error('更新失败');
+    }
+  };
+
+  const handleDeleteUser = async (userId: string) => {
+    try {
+      await api.delete(`/api/admin/users/${userId}`);
+      message.success('用户已删除');
+      loadUsers();
+    } catch (error: any) {
+      message.error(error.response?.data?.error || '删除失败');
+    }
+  };
+
+  // 分组操作
+  const handleGroupSubmit = async (values: any) => {
+    try {
+      if (editingGroup) {
+        await api.put(`/api/admin/groups/${editingGroup.id}`, values);
+        message.success('分组已更新');
+      } else {
+        await api.post('/api/admin/groups', values);
+        message.success('分组已创建');
+      }
+      setGroupModalVisible(false);
+      groupFormRef.current?.resetFields();
+      setEditingGroup(null);
+      loadGroups();
+    } catch {
+      message.error('操作失败');
+    }
+  };
+
+  const handleDeleteGroup = async (id: string) => {
+    try {
+      await api.delete(`/api/admin/groups/${id}`);
+      message.success('分组已删除');
+      loadGroups();
+    } catch {
+      message.error('删除失败');
+    }
+  };
+
+  // 分配分组
+  const openAssignGroups = (user: UserRecord) => {
+    setAssignGroupUserId(user.id);
+    setSelectedGroupIds(user.group_ids || []);
+  };
+
+  const handleAssignGroups = async () => {
+    if (!assignGroupUserId) return;
+    try {
+      await api.put(`/api/admin/users/${assignGroupUserId}/groups`, { group_ids: selectedGroupIds });
+      message.success('分组已更新');
+      setAssignGroupUserId(null);
+      loadUsers();
+    } catch {
+      message.error('更新失败');
+    }
+  };
+
+  // 黑名单操作
+  const handleAddBlacklist = async (values: any) => {
+    try {
+      await api.post('/api/admin/blacklist', values);
+      message.success('已加入黑名单');
+      blacklistForm.resetFields();
+      setBlacklistModalVisible(false);
+      loadBlacklist();
+    } catch {
+      message.error('添加失败');
+    }
+  };
+
+  const handleRemoveBlacklist = async (id: string) => {
+    try {
+      await api.delete(`/api/admin/blacklist/${id}`);
+      message.success('已从黑名单移除');
+      loadBlacklist();
+    } catch {
+      message.error('移除失败');
     }
   };
 
@@ -129,6 +308,14 @@ const MemberManagement: React.FC = () => {
     return map[edu || ''] || '-';
   };
 
+  // 统计数据
+  const stats = {
+    total: users.length,
+    active: users.filter(u => u.status === 'active').length,
+    pending: users.filter(u => u.status === 'pending').length,
+    banned: users.filter(u => u.status === 'banned').length,
+  };
+
   const columns: ColumnsType<UserRecord> = [
     {
       title: '用户',
@@ -138,58 +325,31 @@ const MemberManagement: React.FC = () => {
           <Avatar
             src={record.avatar_url ? `${record.avatar_url}` : undefined}
             icon={<UserOutlined />}
-            style={{ backgroundColor: '#1890ff' }}
+            style={{ backgroundColor: record.role === 'admin' ? '#f50' : '#1890ff' }}
           />
           <div>
-            <div>{record.nickname || record.username}</div>
+            <div>
+              {record.nickname || record.username}
+              {record.role === 'admin' && <Tag color="red" style={{ marginLeft: 4 }}>管理员</Tag>}
+            </div>
             <Text type="secondary" style={{ fontSize: 12 }}>{record.email}</Text>
           </div>
         </Space>
       ),
     },
     {
-      title: '性别',
-      dataIndex: 'gender',
-      key: 'gender',
-      width: 80,
-      render: (v) => getGenderLabel(v),
-    },
-    {
-      title: '年龄',
-      dataIndex: 'age',
-      key: 'age',
-      width: 60,
-      render: (v) => v || '-',
-    },
-    {
-      title: '地区',
-      key: 'location',
-      width: 120,
-      render: (_, record) => {
-        const loc = [record.province, record.city].filter(Boolean).join(' ');
-        return loc || '-';
-      },
-    },
-    {
-      title: '职业',
-      dataIndex: 'occupation',
-      key: 'occupation',
-      width: 100,
-      render: (v) => v || '-',
-    },
-    {
-      title: '婚姻',
-      dataIndex: 'marital_status',
-      key: 'marital_status',
-      width: 80,
-      render: (v) => getMaritalLabel(v),
-    },
-    {
-      title: '学历',
-      dataIndex: 'education',
-      key: 'education',
-      width: 80,
-      render: (v) => getEducationLabel(v),
+      title: '分组',
+      key: 'groups',
+      width: 150,
+      render: (_, record) => (
+        <Space wrap size={4}>
+          {(record.group_ids || []).map(gid => {
+            const g = groups.find(g => g.id === gid);
+            return g ? <Tag key={gid} color={g.color}>{g.name}</Tag> : null;
+          })}
+          {(!record.group_ids || record.group_ids.length === 0) && <Text type="secondary">-</Text>}
+        </Space>
+      ),
     },
     {
       title: '状态',
@@ -206,15 +366,30 @@ const MemberManagement: React.FC = () => {
       },
     },
     {
-      title: '资料',
-      dataIndex: 'profile_completed',
-      key: 'profile_completed',
-      width: 80,
-      render: (v) => (
-        <Tag color={v ? 'green' : 'default'}>
-          {v ? '已完善' : '未完善'}
-        </Tag>
-      ),
+      title: '活跃度',
+      key: 'activity',
+      width: 100,
+      render: (_, record) => {
+        const loginCount = record.login_count || 0;
+        if (loginCount === 0) return <Text type="secondary">从未登录</Text>;
+        if (loginCount < 5) return <Text type="secondary">活跃度低</Text>;
+        if (loginCount < 20) return <Text type="processing">活跃</Text>;
+        return <Text type="success"><RiseOutlined /> 高度活跃</Text>;
+      },
+    },
+    {
+      title: '最近登录',
+      dataIndex: 'last_login',
+      key: 'last_login',
+      width: 100,
+      render: (v) => {
+        if (!v) return <Text type="secondary">-</Text>;
+        const days = Math.floor((Date.now() - new Date(v).getTime()) / (1000 * 60 * 60 * 24));
+        if (days === 0) return <Tag color="green">今天</Tag>;
+        if (days === 1) return <Tag color="blue">昨天</Tag>;
+        if (days < 7) return <Tag color="orange">{days}天前</Tag>;
+        return <Text type="secondary">{new Date(v).toLocaleDateString('zh-CN')}</Text>;
+      },
     },
     {
       title: '注册时间',
@@ -226,82 +401,329 @@ const MemberManagement: React.FC = () => {
     {
       title: '操作',
       key: 'action',
-      width: 80,
+      width: 180,
       fixed: 'right',
       render: (_, record) => (
-        <Button
-          type="link"
-          icon={<EyeOutlined />}
-          onClick={() => viewDetail(record)}
-        >
-          详情
-        </Button>
+        <Space size={4}>
+          <Tooltip title="分配分组">
+            <Button size="small" icon={<TeamOutlined />} onClick={() => openAssignGroups(record)} />
+          </Tooltip>
+          <Tooltip title="查看详情">
+            <Button size="small" icon={<EyeOutlined />} onClick={() => viewDetail(record)} />
+          </Tooltip>
+          {record.status === 'pending' && (
+            <Tooltip title="通过审核">
+              <Button size="small" type="primary" icon={<CheckOutlined />} onClick={() => handleStatusChange(record.id, 'active')} />
+            </Tooltip>
+          )}
+          {record.status === 'active' && record.role !== 'admin' && (
+            <Tooltip title="禁用账号">
+              <Button size="small" danger icon={<StopOutlined />} onClick={() => handleStatusChange(record.id, 'banned')} />
+            </Tooltip>
+          )}
+          {record.status === 'banned' && (
+            <Tooltip title="恢复账号">
+              <Button size="small" icon={<CheckOutlined />} onClick={() => handleStatusChange(record.id, 'active')} />
+            </Tooltip>
+          )}
+          {record.role !== 'admin' && (
+            <Popconfirm title="确认删除此用户？" onConfirm={() => handleDeleteUser(record.id)} okText="删除" cancelText="取消" okType="danger">
+              <Button size="small" danger icon={<DeleteOutlined />} />
+            </Popconfirm>
+          )}
+        </Space>
       ),
     },
   ];
 
+  const groupColumns: ColumnsType<UserGroup> = [
+    {
+      title: '分组名称',
+      dataIndex: 'name',
+      render: (name: string, record: UserGroup) => (
+        <Tag color={record.color} style={{ fontSize: 14, padding: '4px 12px' }}>{name}</Tag>
+      )
+    },
+    { title: '描述', dataIndex: 'description', render: (v: string) => v || '-' },
+    { title: '权限', dataIndex: 'permissions', render: (p: string[]) => p?.length || 0 },
+    {
+      title: '成员数',
+      render: (_, record: UserGroup) => users.filter(u => u.group_ids?.includes(record.id)).length
+    },
+    {
+      title: '操作',
+      render: (_: any, record: UserGroup) => (
+        <Space>
+          <Button size="small" icon={<EditOutlined />} onClick={() => {
+            setEditingGroup(record);
+            groupFormRef.current?.setFieldsValue(record);
+            setGroupModalVisible(true);
+          }} />
+          <Popconfirm title="确认删除此分组？" onConfirm={() => handleDeleteGroup(record.id)} okText="删除" cancelText="取消" okType="danger">
+            <Button size="small" danger icon={<DeleteOutlined />} />
+          </Popconfirm>
+        </Space>
+      )
+    }
+  ];
+
+  const blacklistColumns: ColumnsType<BlacklistItem> = [
+    {
+      title: '类型',
+      dataIndex: 'type',
+      render: (v: string) => {
+        const map: Record<string, { color: string; text: string }> = {
+          email: { color: 'purple', text: '邮箱' },
+          ip: { color: 'cyan', text: 'IP' },
+          username: { color: 'orange', text: '用户名' },
+        };
+        return <Tag color={map[v]?.color}>{map[v]?.text || v}</Tag>;
+      }
+    },
+    { title: '值', dataIndex: 'value' },
+    { title: '原因', dataIndex: 'reason', render: (v: string) => v || '-' },
+    { title: '添加时间', dataIndex: 'created_at', render: (v: string) => new Date(v).toLocaleDateString('zh-CN') },
+    {
+      title: '操作',
+      render: (_: any, record: BlacklistItem) => (
+        <Popconfirm title="确认移除？" onConfirm={() => handleRemoveBlacklist(record.id)} okText="移除" cancelText="取消">
+          <Button size="small" type="link" danger>移除</Button>
+        </Popconfirm>
+      )
+    }
+  ];
+
+  const rowSelection = {
+    selectedRowKeys,
+    onChange: (keys: React.Key[]) => setSelectedRowKeys(keys),
+  };
+
+  const pendingCount = users.filter(u => u.status === 'pending').length;
+
   return (
     <div>
-      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 16 }}>
-        <Title level={4} style={{ margin: 0 }}>会员管理</Title>
-        <Space>
-          <Button icon={<FilterOutlined />} onClick={() => setFilterVisible(true)}>
-            筛选 ({Object.keys(filters).length})
-          </Button>
-          <Button icon={<ExportOutlined />} onClick={() => handleExport('csv')}>
-            导出 CSV
-          </Button>
-          <Button icon={<ExportOutlined />} onClick={() => handleExport('json')}>
-            导出 JSON
-          </Button>
-        </Space>
-      </div>
+      <Tabs
+        items={[
+          {
+            key: 'users',
+            label: (
+              <span>
+                会员列表
+                {pendingCount > 0 && <Badge count={pendingCount} style={{ marginLeft: 8 }} />}
+              </span>
+            ),
+            children: (
+              <>
+                {/* 统计卡片 */}
+                <Row gutter={16} style={{ marginBottom: 16 }}>
+                  <Col span={6}>
+                    <Card size="small">
+                      <Statistic title="总会员数" value={total} prefix={<UserOutlined />} />
+                    </Card>
+                  </Col>
+                  <Col span={6}>
+                    <Card size="small">
+                      <Statistic title="正常" value={stats.active} valueStyle={{ color: '#52c41a' }} />
+                    </Card>
+                  </Col>
+                  <Col span={6}>
+                    <Card size="small">
+                      <Statistic title="待审核" value={stats.pending} valueStyle={{ color: '#faad14' }} />
+                    </Card>
+                  </Col>
+                  <Col span={6}>
+                    <Card size="small">
+                      <Statistic title="已禁用" value={stats.banned} valueStyle={{ color: '#ff4d4f' }} />
+                    </Card>
+                  </Col>
+                </Row>
 
-      {/* 筛选条件展示 */}
-      {Object.keys(filters).length > 0 && (
-        <div style={{ marginBottom: 16 }}>
-          <Space wrap>
-            {Object.entries(filters).map(([key, value]) => (
-              <Tag
-                key={key}
-                closable
-                onClose={() => {
-                  const newFilters = { ...filters };
-                  delete newFilters[key];
-                  setFilters(newFilters);
-                }}
-              >
-                {key}: {value}
-              </Tag>
-            ))}
-            <Button type="link" size="small" onClick={handleReset}>
-              清除全部
-            </Button>
-          </Space>
-        </div>
-      )}
+                {/* 操作栏 */}
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 16 }}>
+                  <Space>
+                    <Input.Search placeholder="搜索用户名/邮箱/昵称" onSearch={handleSearchText} style={{ width: 240 }} allowClear />
+                    <Button icon={<FilterOutlined />} onClick={() => setFilterVisible(true)}>
+                      筛选 {Object.keys(filters).length > 0 && `(${Object.keys(filters).length})`}
+                    </Button>
+                  </Space>
+                  <Space>
+                    <Button icon={<ExportOutlined />} onClick={() => handleExport('csv')}>导出 CSV</Button>
+                    <Button icon={<ExportOutlined />} onClick={() => handleExport('json')}>导出 JSON</Button>
+                  </Space>
+                </div>
 
-      <Card styles={{ body: { padding: 0 } }}>
-        <Table
-          columns={columns}
-          dataSource={users}
-          rowKey="id"
-          loading={loading}
-          scroll={{ x: 1200 }}
-          pagination={{
-            current: page,
-            pageSize: pageSize,
-            total: total,
-            showSizeChanger: true,
-            showQuickJumper: true,
-            showTotal: (total) => `共 ${total} 条记录`,
-            onChange: (p, ps) => {
-              setPage(p);
-              setPageSize(ps);
-            },
-          }}
-        />
-      </Card>
+                {/* 批量操作 */}
+                {selectedRowKeys.length > 0 && (
+                  <Card size="small" style={{ marginBottom: 16, background: '#f6ffed' }}>
+                    <Space>
+                      <Text strong>已选择 {selectedRowKeys.length} 个用户：</Text>
+                      <Button size="small" type="primary" icon={<CheckOutlined />} onClick={() => handleBatchAction('approve')}>批量通过</Button>
+                      <Button size="small" danger icon={<StopOutlined />} onClick={() => handleBatchAction('disable')}>批量禁用</Button>
+                      <Popconfirm title={`确认删除选中的 ${selectedRowKeys.length} 个用户？`} onConfirm={() => handleBatchAction('delete')} okText="删除" cancelText="取消" okType="danger">
+                        <Button size="small" danger icon={<DeleteOutlined />}>批量删除</Button>
+                      </Popconfirm>
+                      <Button size="small" onClick={() => setSelectedRowKeys([])}>取消选择</Button>
+                    </Space>
+                  </Card>
+                )}
+
+                {/* 筛选条件展示 */}
+                {Object.keys(filters).length > 0 && (
+                  <div style={{ marginBottom: 16 }}>
+                    <Space wrap>
+                      {Object.entries(filters).map(([key, value]) => (
+                        <Tag
+                          key={key}
+                          closable
+                          onClose={() => {
+                            const newFilters = { ...filters };
+                            delete newFilters[key];
+                            setFilters(newFilters);
+                          }}
+                        >
+                          {key}: {value}
+                        </Tag>
+                      ))}
+                      <Button type="link" size="small" onClick={handleReset}>清除全部</Button>
+                    </Space>
+                  </div>
+                )}
+
+                <Card styles={{ body: { padding: 0 } }}>
+                  <Table
+                    columns={columns}
+                    dataSource={users}
+                    rowKey="id"
+                    loading={loading}
+                    scroll={{ x: 1400 }}
+                    rowSelection={rowSelection}
+                    pagination={{
+                      current: page,
+                      pageSize: pageSize,
+                      total: total,
+                      showSizeChanger: true,
+                      showQuickJumper: true,
+                      showTotal: (total) => `共 ${total} 条记录`,
+                      onChange: (p, ps) => {
+                        setPage(p);
+                        setPageSize(ps);
+                      },
+                    }}
+                  />
+                </Card>
+              </>
+            )
+          },
+          {
+            key: 'groups',
+            label: '用户分组',
+            children: (
+              <div>
+                <div style={{ marginBottom: 16 }}>
+                  <Button type="primary" icon={<PlusOutlined />} onClick={() => { setEditingGroup(null); groupFormRef.current?.resetFields(); setGroupModalVisible(true); }}>
+                    新建分组
+                  </Button>
+                </div>
+                <Card styles={{ body: { padding: 0 } }}>
+                  <Table
+                    dataSource={groups}
+                    columns={groupColumns}
+                    rowKey="id"
+                    pagination={false}
+                  />
+                </Card>
+              </div>
+            )
+          },
+          {
+            key: 'blacklist',
+            label: '黑名单管理',
+            children: (
+              <div>
+                <div style={{ marginBottom: 16 }}>
+                  <Button type="primary" icon={<LockOutlined />} onClick={() => setBlacklistModalVisible(true)}>
+                    添加到黑名单
+                  </Button>
+                </div>
+                <Card styles={{ body: { padding: 0 } }}>
+                  <Table
+                    dataSource={blacklist}
+                    columns={blacklistColumns}
+                    rowKey="id"
+                    pagination={{ pageSize: 10 }}
+                    locale={{ emptyText: '暂无黑名单记录' }}
+                  />
+                </Card>
+              </div>
+            )
+          },
+          {
+            key: 'stats',
+            label: '活跃度统计',
+            children: (
+              <div>
+                <Row gutter={16} style={{ marginBottom: 24 }}>
+                  <Col span={8}>
+                    <Card title="用户活跃度分布">
+                      <div style={{ textAlign: 'center' }}>
+                        <Progress
+                          type="circle"
+                          percent={Math.round((users.filter(u => (u.login_count || 0) > 10).length / Math.max(users.length, 1)) * 100)}
+                          strokeColor="#52c41a"
+                        />
+                        <div style={{ marginTop: 8 }}>
+                          <Text type="secondary">高度活跃用户</Text>
+                        </div>
+                      </div>
+                    </Card>
+                  </Col>
+                  <Col span={8}>
+                    <Card title="登录趋势">
+                      <Statistic
+                        title="平均登录次数"
+                        value={Math.round(users.reduce((sum, u) => sum + (u.login_count || 0), 0) / Math.max(users.length, 1))}
+                        suffix="次"
+                        prefix={<ClockCircleOutlined />}
+                      />
+                    </Card>
+                  </Col>
+                  <Col span={8}>
+                    <Card title="活跃用户 TOP 5">
+                      <List
+                        size="small"
+                        dataSource={users.sort((a, b) => (b.login_count || 0) - (a.login_count || 0)).slice(0, 5)}
+                        renderItem={(item) => (
+                          <List.Item>
+                            <List.Item.Meta
+                              avatar={<Avatar icon={<UserOutlined />} style={{ backgroundColor: '#1890ff' }} />}
+                              title={item.nickname || item.username}
+                              description={`登录 ${item.login_count || 0} 次`}
+                            />
+                          </List.Item>
+                        )}
+                      />
+                    </Card>
+                  </Col>
+                </Row>
+                <Card title="最近活跃用户">
+                  <Table
+                    dataSource={users.filter(u => u.last_login).sort((a, b) => new Date(b.last_login!).getTime() - new Date(a.last_login!).getTime()).slice(0, 10)}
+                    columns={[
+                      { title: '用户', dataIndex: 'username', render: (v, r) => <Space><Avatar size="small" icon={<UserOutlined />} />{r.nickname || v}</Space> },
+                      { title: '最后登录', dataIndex: 'last_login', render: (v) => new Date(v).toLocaleString('zh-CN') },
+                      { title: '登录次数', dataIndex: 'login_count' },
+                      { title: '注册时间', dataIndex: 'created_at', render: (v) => new Date(v).toLocaleDateString('zh-CN') },
+                    ]}
+                    rowKey="id"
+                    pagination={false}
+                    size="small"
+                  />
+                </Card>
+              </div>
+            )
+          }
+        ]}
+      />
 
       {/* 筛选弹窗 */}
       <Modal
@@ -385,6 +807,94 @@ const MemberManagement: React.FC = () => {
         </Form>
       </Modal>
 
+      {/* 新建/编辑分组弹窗 */}
+      <Modal
+        title={editingGroup ? '编辑分组' : '新建分组'}
+        open={groupModalVisible}
+        onOk={() => groupFormRef.current?.submit()}
+        onCancel={() => { setGroupModalVisible(false); setEditingGroup(null); groupFormRef.current?.resetFields(); }}
+        okText="保存"
+        cancelText="取消"
+      >
+        <Form
+          ref={groupFormRef}
+          layout="vertical"
+          onFinish={handleGroupSubmit}
+          initialValues={editingGroup || {}}
+        >
+          <Form.Item label="分组名称" name="name" rules={[{ required: true, message: '请输入分组名称' }]}>
+            <Input placeholder="例如：VIP会员" />
+          </Form.Item>
+          <Form.Item label="描述" name="description">
+            <Input placeholder="分组说明（可选）" />
+          </Form.Item>
+          <Form.Item label="标签颜色" name="color" initialValue="#1890ff">
+            <Select>
+              {['#f50', '#2db7f5', '#87d068', '#108ee9', '#722ed1', '#eb2f96', '#fa8c16', '#52c41a'].map(c => (
+                <Option key={c} value={c}>
+                  <Tag color={c}>{c}</Tag>
+                </Option>
+              ))}
+            </Select>
+          </Form.Item>
+        </Form>
+      </Modal>
+
+      {/* 添加黑名单弹窗 */}
+      <Modal
+        title="添加到黑名单"
+        open={blacklistModalVisible}
+        onOk={() => blacklistForm.submit()}
+        onCancel={() => { setBlacklistModalVisible(false); blacklistForm.resetFields(); }}
+        okText="添加"
+        cancelText="取消"
+      >
+        <Form
+          form={blacklistForm}
+          layout="vertical"
+          onFinish={handleAddBlacklist}
+        >
+          <Form.Item label="类型" name="type" rules={[{ required: true, message: '请选择类型' }]}>
+            <Select placeholder="选择类型">
+              <Option value="email">邮箱</Option>
+              <Option value="ip">IP 地址</Option>
+              <Option value="username">用户名</Option>
+            </Select>
+          </Form.Item>
+          <Form.Item label="值" name="value" rules={[{ required: true, message: '请输入值' }]}>
+            <Input placeholder="输入邮箱/IP/用户名" />
+          </Form.Item>
+          <Form.Item label="原因" name="reason">
+            <Input.TextArea placeholder="添加原因（可选）" rows={2} />
+          </Form.Item>
+        </Form>
+      </Modal>
+
+      {/* 分配分组弹窗 */}
+      <Modal
+        title="分配用户分组"
+        open={!!assignGroupUserId}
+        onOk={handleAssignGroups}
+        onCancel={() => setAssignGroupUserId(null)}
+        okText="保存"
+        cancelText="取消"
+      >
+        <p>选择该用户所属的分组（可多选）：</p>
+        <Select
+          mode="multiple"
+          style={{ width: '100%' }}
+          placeholder="选择分组"
+          value={selectedGroupIds}
+          onChange={setSelectedGroupIds}
+        >
+          {groups.map(g => (
+            <Option key={g.id} value={g.id}>
+              <Tag color={g.color}>{g.name}</Tag>
+            </Option>
+          ))}
+        </Select>
+      </Modal>
+
       {/* 会员详情抽屉 */}
       <Drawer
         title="会员详情"
@@ -423,6 +933,12 @@ const MemberManagement: React.FC = () => {
                     <Descriptions.Item label="注册时间" span={2}>
                       {new Date(selectedUser.created_at).toLocaleString('zh-CN')}
                     </Descriptions.Item>
+                    <Descriptions.Item label="登录次数">
+                      {selectedUser.login_count || 0} 次
+                    </Descriptions.Item>
+                    <Descriptions.Item label="最近登录">
+                      {selectedUser.last_login ? new Date(selectedUser.last_login).toLocaleString('zh-CN') : '从未登录'}
+                    </Descriptions.Item>
                   </Descriptions>
                 ),
               },
@@ -434,7 +950,6 @@ const MemberManagement: React.FC = () => {
                     <Descriptions.Item label="所在地区">
                       {[selectedUser.province, selectedUser.city, selectedUser.district].filter(Boolean).join(' ') || '-'}
                     </Descriptions.Item>
-                    <Descriptions.Item label="详细地址">{selectedUser.address || '-'}</Descriptions.Item>
                     <Descriptions.Item label="联系电话">{selectedUser.phone || '-'}</Descriptions.Item>
                     <Descriptions.Item label="微信号">{selectedUser.wechat || '-'}</Descriptions.Item>
                     <Descriptions.Item label="QQ号">{selectedUser.qq || '-'}</Descriptions.Item>

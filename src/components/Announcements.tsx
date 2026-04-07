@@ -11,12 +11,26 @@ const { Text } = Typography;
 
 const API_BASE = import.meta.env.VITE_API_BASE || '';
 
+interface ModuleConfig {
+  icon?: string;
+  image?: string;
+  label?: string;
+}
+
 interface SiteConfig {
   heroBanner?: string;
   siteName?: string;
   siteSubtitle?: string;
-  menuLabels?: Record<string, string>;
-  moduleIcons?: Record<string, string>;
+  menuLabels?: {
+    resources?: string;
+    albums?: string;
+    surveys?: string;
+  };
+  moduleConfigs?: {
+    resources?: ModuleConfig;
+    albums?: ModuleConfig;
+    surveys?: ModuleConfig;
+  };
   heroTitleStyle?: {
     fontSize?: number;
     subtitleFontSize?: number;
@@ -33,7 +47,6 @@ interface SiteConfig {
     background?: string;
     speed?: number;
   };
-  moduleImages?: Record<string, string>;
   homePageStyle?: {
     backgroundColor?: string;
     backgroundImage?: string;
@@ -50,19 +63,33 @@ interface Props {
 const HomePage: React.FC<Props> = ({ siteConfig }) => {
   const [announcements, setAnnouncements] = useState<Announcement[]>([]);
 
-  // 默认菜单标签
+  // 从 siteConfig 读取模块配置
+  const moduleConfigs = siteConfig?.moduleConfigs || {};
+
+  // 默认配置
+  const defaultModules = {
+    resources: { icon: '📁', label: '资源库' },
+    albums: { icon: '🖼️', label: '相册' },
+    surveys: { icon: '📝', label: '问卷' },
+  };
+
+  // 从 siteConfig 读取菜单标签
   const labels = {
-    resources: siteConfig?.menuLabels?.resources || '资源库',
-    albums: siteConfig?.menuLabels?.albums || '相册',
-    surveys: siteConfig?.menuLabels?.surveys || '问卷',
-    messages: siteConfig?.menuLabels?.messages || '留言板',
-    announcements: siteConfig?.menuLabels?.announcements || '公告通知',
+    resources: siteConfig?.menuLabels?.resources || moduleConfigs.resources?.label || defaultModules.resources.label,
+    albums: siteConfig?.menuLabels?.albums || moduleConfigs.albums?.label || defaultModules.albums.label,
+    surveys: siteConfig?.menuLabels?.surveys || moduleConfigs.surveys?.label || defaultModules.surveys.label,
+  };
+
+  // 模块图标和图片
+  const icons = {
+    resources: moduleConfigs.resources?.icon || defaultModules.resources.icon,
+    albums: moduleConfigs.albums?.icon || defaultModules.albums.icon,
+    surveys: moduleConfigs.surveys?.icon || defaultModules.surveys.icon,
   };
 
   const heroBanner = siteConfig?.heroBanner;
   const marqueeConfig = siteConfig?.marqueeConfig;
   const homePageStyle = siteConfig?.homePageStyle;
-  const moduleImages = siteConfig?.moduleImages;
 
   // 计算要显示的滚动公告
   const marqueeAnnouncements = marqueeConfig?.enabled
@@ -121,44 +148,37 @@ const HomePage: React.FC<Props> = ({ siteConfig }) => {
     zIndex: 10,
   };
 
-  // 模块预设配置
-  const modulePresets = [
-    { key: 'resources', label: labels.resources, path: '/resources', color: '#1890ff', bg: '#e6f7ff' },
-    { key: 'albums', label: labels.albums, path: '/albums', color: '#eb2f96', bg: '#fff0f6' },
-    { key: 'surveys', label: labels.surveys, path: '/surveys', color: '#52c41a', bg: '#f6ffed' },
-    { key: 'messages', label: '留言板', path: '/messages', color: '#fa8c16', bg: '#fff7e6' },
-    { key: 'announcements', label: '公告通知', path: '/announcements', color: '#722ed1', bg: '#f9f0ff' },
-    { key: 'calendar', label: '日历', path: '/calendar', color: '#13c2c2', bg: '#e6fffb' },
-    { key: 'statistics', label: '数据统计', path: '/statistics', color: '#eb2f96', bg: '#fff0f6' },
-    { key: 'gallery', label: '图库', path: '/gallery', color: '#52c41a', bg: '#f6ffed' },
-    { key: 'about', label: '关于我们', path: '/about', color: '#8c8c8c', bg: '#f5f5f5' },
+  const allModuleCards = [
+    {
+      key: 'resources',
+      icon: icons.resources,
+      label: labels.resources,
+      path: '/resources',
+      color: '#1890ff',
+      bg: '#e6f7ff',
+      image: moduleConfigs.resources?.image,
+    },
+    {
+      key: 'albums',
+      icon: icons.albums,
+      label: labels.albums,
+      path: '/albums',
+      color: '#eb2f96',
+      bg: '#fff0f6',
+      image: moduleConfigs.albums?.image,
+    },
+    {
+      key: 'surveys',
+      icon: icons.surveys,
+      label: labels.surveys,
+      path: '/surveys',
+      color: '#52c41a',
+      bg: '#f6ffed',
+      image: moduleConfigs.surveys?.image,
+    },
   ];
 
-  // 根据 moduleIcons 配置生成模块卡片
-  const moduleIcons = siteConfig?.moduleIcons || {};
-  const activeModuleKeys = Object.keys(moduleIcons);
-  
-  const allModuleCards = activeModuleKeys.map((key, index) => {
-    const preset = modulePresets.find(p => p.key === key);
-    const customIcon = moduleIcons[key] || preset?.icon || '📦';
-    const customLabel = siteConfig?.menuLabels?.[key as keyof typeof siteConfig.menuLabels] || preset?.label || key;
-    
-    // 预设颜色轮换
-    const colors = ['#1890ff', '#eb2f96', '#52c41a', '#fa8c16', '#722ed1', '#13c2c2', '#faad14', '#f5222d', '#a0d911'];
-    
-    return {
-      key,
-      icon: customIcon,
-      label: customLabel,
-      path: preset?.path || `/${key}`,
-      color: preset?.color || colors[index % colors.length],
-      bg: preset?.bg || '#f5f5f5',
-      image: moduleImages?.[key],
-    };
-  });
-
   // 根据配置限制模块数量
-  const moduleCount = homePageStyle?.moduleCount ?? activeModuleKeys.length ?? 3;
   const moduleCards = allModuleCards.slice(0, moduleCount);
 
   useEffect(() => {
@@ -310,11 +330,11 @@ const HomePage: React.FC<Props> = ({ siteConfig }) => {
         </div>
       )}
 
-      {/* 模块图标卡片 - 九宫格布局 */}
+      {/* 模块图标卡片 */}
       {moduleCards.length > 0 && (
         <Row gutter={[16, 16]} style={{ marginBottom: 24 }}>
           {moduleCards.map((card) => (
-            <Col xs={24} sm={8} md={8} key={card.key}>
+            <Col xs={24} sm={Math.floor(24 / moduleCount)} key={card.key}>
               <Card
                 hoverable
                 onClick={() => window.location.href = card.path}
@@ -325,24 +345,23 @@ const HomePage: React.FC<Props> = ({ siteConfig }) => {
                   background: card.bg,
                   border: 'none',
                   transition: 'transform 0.2s, box-shadow 0.2s',
-                  minHeight: 140,
                 }}
-                styles={{ body: { padding: '24px 16px' } }}
+                styles={{ body: { padding: '28px 16px' } }}
               >
-                <div style={{ height: 48, display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 12 }}>
+                <div style={{ height: 56, display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 12 }}>
                   {card.image ? (
                     <img
                       src={`${API_BASE}${card.image}`}
                       alt={card.label}
-                      style={{ maxWidth: 48, maxHeight: 48, objectFit: 'contain' }}
+                      style={{ maxWidth: 56, maxHeight: 56, objectFit: 'contain' }}
                     />
                   ) : (
-                    <div style={{ fontSize: 40, lineHeight: 1 }}>
+                    <div style={{ fontSize: 48, lineHeight: 1 }}>
                       {card.icon}
                     </div>
                   )}
                 </div>
-                <div style={{ fontSize: 15, fontWeight: 600, color: card.color, marginBottom: 4 }}>
+                <div style={{ fontSize: 16, fontWeight: 600, color: card.color, marginBottom: 4 }}>
                   {card.label}
                 </div>
                 <div style={{ color: '#888', fontSize: 12 }}>

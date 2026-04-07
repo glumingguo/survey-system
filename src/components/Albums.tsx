@@ -68,6 +68,13 @@ const AlbumPage: React.FC = () => {
     }
   };
 
+  // 关闭抽屉时清理状态
+  const handleDrawerClose = () => {
+    setDrawerOpen(false);
+    // 延迟清理 viewAlbum，确保动画完成
+    setTimeout(() => setViewAlbum(null), 300);
+  };
+
   const handleAlbumSubmit = async (values: any) => {
     try {
       if (editingAlbum) {
@@ -107,15 +114,23 @@ const AlbumPage: React.FC = () => {
   };
 
   const handleUploadPhotos = async (fileList: File[]) => {
-    if (!viewAlbum) return;
+    if (!viewAlbum || uploading) return;
     setUploading(true);
     try {
       const newPhotos = await uploadPhotos(viewAlbum.id, fileList);
-      setViewAlbum(prev => prev ? { ...prev, photos: [...(prev.photos || []), ...newPhotos] } : prev);
+      // 更新本地相册照片列表
+      setViewAlbum(prev => {
+        if (!prev) return prev;
+        const existingPhotos = prev.photos || [];
+        return { ...prev, photos: [...existingPhotos, ...newPhotos] };
+      });
       message.success(`成功上传 ${newPhotos.length} 张照片`);
-      loadData(); // 更新封面
-    } catch {
-      message.error('上传失败');
+      // 单独更新相册列表，不影响当前查看状态
+      const albumsData = await getAlbums();
+      setAlbums(albumsData);
+    } catch (err: any) {
+      console.error('上传失败:', err);
+      message.error(err?.response?.data?.error || '上传失败，请重试');
     } finally {
       setUploading(false);
     }
@@ -227,7 +242,7 @@ const AlbumPage: React.FC = () => {
       <Drawer
         title={viewAlbum?.name || '相册'}
         open={drawerOpen}
-        onClose={() => setDrawerOpen(false)}
+        onClose={handleDrawerClose}
         width={600}
         extra={
           isAdmin && viewAlbum && (

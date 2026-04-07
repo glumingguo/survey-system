@@ -10,7 +10,7 @@ import {
 } from '@ant-design/icons';
 import {
   getResourceFolders, createResourceFolder, updateResourceFolder, deleteResourceFolder,
-  getFolderFiles, uploadResourceFile, deleteResourceFile, getGroups,
+  getFolderFiles, uploadResourceFile, uploadResourceFiles, deleteResourceFile, getGroups,
   uploadSiteImage, type ResourceFolder, type ResourceFile, type UserGroup
 } from '../api/site';
 import { useAuth } from '../context/AuthContext';
@@ -74,6 +74,15 @@ const ResourceLibrary: React.FC = () => {
     }
   };
 
+  // 关闭抽屉时清理状态
+  const handleDrawerClose = () => {
+    setDrawerOpen(false);
+    setTimeout(() => {
+      setSelectedFolder(null);
+      setFiles([]);
+    }, 300);
+  };
+
   const handleFolderSubmit = async (values: any) => {
     try {
       if (editingFolder) {
@@ -112,6 +121,7 @@ const ResourceLibrary: React.FC = () => {
     }
   };
 
+  // 单文件上传（保留，但不再使用）
   const handleUploadFile = async (file: File) => {
     if (!selectedFolder) return;
     setUploading(true);
@@ -125,6 +135,22 @@ const ResourceLibrary: React.FC = () => {
       setUploading(false);
     }
     return false;
+  };
+
+  // 批量上传文件
+  const handleBatchUpload = async (fileList: File[]) => {
+    if (!selectedFolder || fileList.length === 0 || uploading) return;
+    setUploading(true);
+    try {
+      const newFiles = await uploadResourceFiles(selectedFolder.id, fileList);
+      setFiles(prev => [...prev, ...newFiles]);
+      message.success(`成功上传 ${newFiles.length} 个文件`);
+    } catch (err: any) {
+      console.error('批量上传失败:', err);
+      message.error(err?.response?.data?.error || '批量上传失败，请重试');
+    } finally {
+      setUploading(false);
+    }
   };
 
   const handleDeleteFile = async (fileId: string) => {
@@ -244,12 +270,22 @@ const ResourceLibrary: React.FC = () => {
       <Drawer
         title={selectedFolder?.name || '文件夹'}
         open={drawerOpen}
-        onClose={() => setDrawerOpen(false)}
+        onClose={handleDrawerClose}
         width={500}
         extra={
           isAdmin && selectedFolder && (
-            <Upload beforeUpload={handleUploadFile} showUploadList={false}>
-              <Button icon={<UploadOutlined />} loading={uploading}>上传文件</Button>
+            <Upload
+              beforeUpload={() => false}
+              multiple
+              showUploadList={false}
+              onChange={({ fileList }) => {
+                const files = fileList.map(f => f.originFileObj!).filter(Boolean);
+                if (files.length > 0) handleBatchUpload(files);
+              }}
+            >
+              <Button icon={<UploadOutlined />} loading={uploading}>
+                {uploading ? '上传中...' : '上传文件'}
+              </Button>
             </Upload>
           )
         }
