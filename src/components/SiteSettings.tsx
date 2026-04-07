@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import {
   Form, Input, Button, Card, message, Select, Divider,
-  Upload, Image, Typography, Spin, Row, Col, InputNumber, Switch, ColorPicker
+  Upload, Image, Typography, Spin, Row, Col, InputNumber, Switch
 } from 'antd';
 import { UploadOutlined, PictureOutlined } from '@ant-design/icons';
 import { getAdminSiteSettings, updateSiteSettings, uploadSiteImage, getAnnouncements, type SiteSettings } from '../api/site';
@@ -385,12 +385,12 @@ const SiteSettingsPage: React.FC = () => {
             </Col>
             <Col span={8}>
               <Form.Item label="标题颜色" name="titleColor">
-                <ColorPicker showText />
+                <Input placeholder="#ffffff 或 rgba(255,255,255,0.85)" />
               </Form.Item>
             </Col>
             <Col span={8}>
               <Form.Item label="副标题颜色" name="subtitleColor">
-                <ColorPicker showText />
+                <Input placeholder="rgba(255,255,255,0.85)" />
               </Form.Item>
             </Col>
             <Col span={8}>
@@ -459,12 +459,12 @@ const SiteSettingsPage: React.FC = () => {
             </Col>
             <Col span={6}>
               <Form.Item label="文字颜色" name="color">
-                <ColorPicker showText />
+                <Input placeholder="#ffffff 或 rgba(0,0,0,0.5)" />
               </Form.Item>
             </Col>
             <Col span={6}>
               <Form.Item label="背景颜色" name="background">
-                <ColorPicker showText />
+                <Input placeholder="rgba(0,0,0,0.5)" />
               </Form.Item>
             </Col>
           </Row>
@@ -559,7 +559,7 @@ const SiteSettingsPage: React.FC = () => {
           <Row gutter={16}>
             <Col span={6}>
               <Form.Item label="背景颜色" name="backgroundColor">
-                <ColorPicker showText />
+                <Input placeholder="#f0f2f5" />
               </Form.Item>
             </Col>
             <Col span={6}>
