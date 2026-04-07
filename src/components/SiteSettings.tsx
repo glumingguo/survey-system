@@ -49,14 +49,28 @@ const SiteSettingsPage: React.FC = () => {
         getAdminSiteSettings(),
         getAnnouncements()
       ]);
-      setSettings(data);
+      // 确保 data 是对象而非字符串
+      let settingsData = data;
+      if (typeof data === 'string') {
+        try {
+          settingsData = JSON.parse(data);
+        } catch {
+          settingsData = {};
+        }
+      }
+      // 确保 settingsData 是对象
+      if (!settingsData || typeof settingsData !== 'object') {
+        settingsData = {};
+      }
+      setSettings(settingsData);
       setAnnouncements(annData.map(a => ({ id: a.id, title: a.title })));
       form.setFieldsValue({
-        siteName: data.siteName || '',
-        siteSubtitle: data.siteSubtitle || '',
-        registerMode: data.registerMode || 'open',
+        siteName: settingsData.siteName || '',
+        siteSubtitle: settingsData.siteSubtitle || '',
+        registerMode: settingsData.registerMode || 'open',
       });
-    } catch {
+    } catch (err) {
+      console.error('加载设置失败:', err);
       message.error('加载设置失败');
     } finally {
       setLoading(false);
@@ -336,6 +350,7 @@ const SiteSettingsPage: React.FC = () => {
             titleColor: settings.heroTitleStyle?.titleColor || '#ffffff',
             subtitleColor: settings.heroTitleStyle?.subtitleColor || 'rgba(255,255,255,0.85)',
             position: settings.heroTitleStyle?.position || 'center',
+            bannerOpacity: settings.heroTitleStyle?.bannerOpacity ?? 1,
           }}
           onFinish={(values) => handleSave({
             ...settings,
@@ -345,6 +360,7 @@ const SiteSettingsPage: React.FC = () => {
               titleColor: values.titleColor,
               subtitleColor: values.subtitleColor,
               position: values.position,
+              bannerOpacity: values.bannerOpacity,
             }
           })}
         >
@@ -376,6 +392,11 @@ const SiteSettingsPage: React.FC = () => {
             <Col span={8}>
               <Form.Item label="副标题颜色" name="subtitleColor">
                 <ColorPicker showText />
+              </Form.Item>
+            </Col>
+            <Col span={8}>
+              <Form.Item label="封面图透明度" name="bannerOpacity" tooltip="设置封面图片的透明度，0 为完全透明，1 为完全不透明">
+                <InputNumber min={0} max={1} step={0.1} precision={1} style={{ width: '100%' }} />
               </Form.Item>
             </Col>
           </Row>
