@@ -2,8 +2,9 @@ services:
   - type: web
     name: survey-system-api
     env: node
-    buildCommand: npm install && npm install --prefix .
-    startCommand: node server/index.js
+    rootDir: server
+    buildCommand: npm install
+    startCommand: node index.js
     envVars:
       - key: NODE_ENV
         value: production
