@@ -225,6 +225,7 @@ const ProfilePage: React.FC = () => {
                           ))}
                         </Select>
                       </Form.Item>
+                    </Col>
                   </Row>
 
                   <Form.Item label="个人简介" name="bio">
