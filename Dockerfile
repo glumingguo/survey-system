@@ -13,8 +13,12 @@ RUN npm install
 # 复制 server 源码
 COPY server/ ./
 
-# 暴露端口
-EXPOSE 3000
+# Railway 会自动设置 PORT 环境变量
+# 使用 $PORT 如果存在，否则默认 3000
+ENV PORT=${PORT:-3000}
 
-# 启动命令 - 直接使用 node index.js
+# 暴露端口
+EXPOSE $PORT
+
+# 启动命令
 CMD ["node", "index.js"]
