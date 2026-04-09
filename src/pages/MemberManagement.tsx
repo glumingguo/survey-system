@@ -341,15 +341,29 @@ const MemberManagement: React.FC = () => {
       title: '分组',
       key: 'groups',
       width: 150,
-      render: (_, record) => (
-        <Space wrap size={4}>
-          {(record.group_ids || []).map(gid => {
-            const g = groups.find(g => g.id === gid);
-            return g ? <Tag key={gid} color={g.color}>{g.name}</Tag> : null;
-          })}
-          {(!record.group_ids || record.group_ids.length === 0) && <Text type="secondary">-</Text>}
-        </Space>
-      ),
+      render: (_, record) => {
+        // 防御性处理：group_ids 可能是数组、JSON字符串或逗号分隔字符串
+        let gids: string[] = [];
+        if (Array.isArray(record.group_ids)) {
+          gids = record.group_ids;
+        } else if (typeof record.group_ids === 'string' && record.group_ids) {
+          try {
+            const parsed = JSON.parse(record.group_ids);
+            gids = Array.isArray(parsed) ? parsed : [record.group_ids];
+          } catch {
+            gids = record.group_ids.split(',').map((s: string) => s.trim()).filter(Boolean);
+          }
+        }
+        return (
+          <Space wrap size={4}>
+            {gids.map(gid => {
+              const g = groups.find(g => g.id === gid);
+              return g ? <Tag key={gid} color={g.color}>{g.name}</Tag> : null;
+            })}
+            {gids.length === 0 && <Text type="secondary">-</Text>}
+          </Space>
+        );
+      },
     },
     {
       title: '状态',
@@ -373,7 +387,7 @@ const MemberManagement: React.FC = () => {
         const loginCount = record.login_count || 0;
         if (loginCount === 0) return <Text type="secondary">从未登录</Text>;
         if (loginCount < 5) return <Text type="secondary">活跃度低</Text>;
-        if (loginCount < 20) return <Text type="processing">活跃</Text>;
+        if (loginCount < 20) return <Text type="warning">活跃</Text>;
         return <Text type="success"><RiseOutlined /> 高度活跃</Text>;
       },
     },

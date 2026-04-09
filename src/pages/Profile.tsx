@@ -63,11 +63,10 @@ const ProfilePage: React.FC = () => {
     setSaving(true);
     try {
       const updated = await updateUserProfile(values);
-      // 更新 AuthContext 中的用户信息
+      // 用后端返回的真实数据更新 AuthContext，确保右上角头像和昵称立即同步
       updateUser({
         nickname: updated.nickname,
         avatar: updated.avatar || updated.avatar_url,
-        ...values,
       });
       message.success('资料更新成功');
       loadProfile();
@@ -138,7 +137,8 @@ const ProfilePage: React.FC = () => {
               size={100}
               src={avatarUrl ? `${API_BASE}${avatarUrl}` : undefined}
               icon={<UserOutlined />}
-              style={{ backgroundColor: '#1890ff' }}
+              style={{ backgroundColor: '#1890ff', pointerEvents: 'none', userSelect: 'none' }}
+              onContextMenu={e => e.preventDefault()}
             />
             <Upload
               beforeUpload={handleAvatarUpload}

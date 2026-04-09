@@ -13,6 +13,7 @@ import {
   Button,
   Dropdown
 } from 'antd';
+import { useAuth } from '../context/AuthContext';
 import type { MenuProps } from 'antd';
 import { 
   FileTextOutlined, 
@@ -56,6 +57,8 @@ interface QuestionStats {
 const COLORS = ['#1890ff', '#52c41a', '#faad14', '#f5222d', '#722ed1', '#fa8c16'];
 
 const SurveyStatistics: React.FC = () => {
+  const { user } = useAuth();
+  const isAdmin = user?.role === 'admin';
   const [loading, setLoading] = useState(false);
   const [statistics, setStatistics] = useState<StatisticsData | null>(null);
   const [surveyTitle, setSurveyTitle] = useState('');
@@ -269,11 +272,13 @@ const SurveyStatistics: React.FC = () => {
     <div>
       <div style={{ marginBottom: 16, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <Title level={2}>{surveyTitle} - 统计分析</Title>
-        <Dropdown menu={{ items: exportMenuItems }} placement="bottomRight">
-          <Button type="primary" icon={<DownloadOutlined />}>
-            导出数据
-          </Button>
-        </Dropdown>
+        {isAdmin && (
+          <Dropdown menu={{ items: exportMenuItems }} placement="bottomRight">
+            <Button type="primary" icon={<DownloadOutlined />}>
+              导出数据
+            </Button>
+          </Dropdown>
+        )}
       </div>
 
       {/* 总览统计 */}

@@ -74,6 +74,7 @@ const UserMenu: React.FC = () => {
             src={avatarUrl ? `${import.meta.env.VITE_API_BASE || ''}${avatarUrl}` : undefined}
             style={{ backgroundColor: avatarUrl ? 'transparent' : '#1890ff' }}
             icon={!avatarUrl && <UserOutlined />}
+            onContextMenu={e => e.preventDefault()}
           />
           <span style={{ color: '#333' }}>{displayName}</span>
         </Space>

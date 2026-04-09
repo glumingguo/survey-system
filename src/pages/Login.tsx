@@ -5,6 +5,27 @@ import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { getSiteSettings, type SiteSettings } from '../api/site';
 
+// 提取错误消息的辅助函数（与 api/auth.ts 保持一致）
+function extractErrorMessage(error: any): string {
+  // 优先从 response.data.error 获取
+  if (error.response?.data?.error) {
+    return error.response.data.error;
+  }
+  // 尝试 response.data.message
+  if (error.response?.data?.message) {
+    return error.response.data.message;
+  }
+  // 网络错误
+  if (error.code === 'ECONNABORTED') {
+    return '请求超时，请检查网络连接';
+  }
+  if (error.message?.includes('Network Error') || !error.response) {
+    return '无法连接服务器，请检查网络或服务是否正常运行';
+  }
+  // 未知错误
+  return '操作失败，请稍后重试';
+}
+
 const API_BASE = import.meta.env.VITE_API_BASE || '';
 
 const Login: React.FC = () => {
@@ -28,7 +49,7 @@ const Login: React.FC = () => {
       message.success('登录成功');
       navigate('/');
     } catch (error: any) {
-      message.error(error.response?.data?.error || '登录失败');
+      message.error(extractErrorMessage(error));
     } finally {
       setLoading(false);
     }
@@ -57,7 +78,7 @@ const Login: React.FC = () => {
         navigate('/');
       }
     } catch (error: any) {
-      message.error(error.response?.data?.error || '注册失败');
+      message.error(extractErrorMessage(error));
     } finally {
       setLoading(false);
     }

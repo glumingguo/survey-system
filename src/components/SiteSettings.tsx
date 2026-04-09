@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import {
   Form, Input, Button, Card, message, Select, Divider,
-  Upload, Image, Typography, Spin, Row, Col, InputNumber, Switch
+  Upload, Image, Typography, Spin, Row, Col, InputNumber, Switch, ColorPicker
 } from 'antd';
 import { UploadOutlined, PictureOutlined } from '@ant-design/icons';
 import { getAdminSiteSettings, updateSiteSettings, uploadSiteImage, getAnnouncements, type SiteSettings } from '../api/site';
@@ -35,14 +35,18 @@ const ICON_OPTIONS = [
 function normalizeColor(color: any): string {
   if (!color) return '#f0f2f5';
   if (typeof color === 'string') return color;
-  // 处理 Ant Design Color 对象
+  // Ant Design ColorPicker 的 Color 对象有 toHexString 方法
+  if (typeof color.toHexString === 'function') {
+    return color.toHexString();
+  }
+  // 兼容旧格式 metaColor 对象
   if (color.metaColor && typeof color.metaColor === 'object') {
     const { r, g, b } = color.metaColor;
     if (r !== undefined && g !== undefined && b !== undefined) {
       return `#${[r, g, b].map((x: number) => x.toString(16).padStart(2, '0')).join('')}`;
     }
   }
-  // 如果是其他对象，尝试提取 _v 或直接返回
+  // 如果是其他对象，尝试提取 _v
   if (color._v) return color._v;
   return '#f0f2f5';
 }
@@ -74,15 +78,33 @@ function normalizeSettingsData(data: any): any {
     ...homePageStyle,
     backgroundColor: normalizeColor(homePageStyle.backgroundColor),
   };
+
+  // 规范化 heroTitleStyle
+  const heroTitleStyle = data.heroTitleStyle || {};
+  const normalizedHeroTitleStyle = {
+    ...heroTitleStyle,
+    titleColor: normalizeColor(heroTitleStyle.titleColor),
+    subtitleColor: normalizeColor(heroTitleStyle.subtitleColor),
+  };
+
+  // 规范化 marqueeConfig
+  const marqueeConfig = data.marqueeConfig || {};
+  const normalizedMarqueeConfig = {
+    ...marqueeConfig,
+    color: normalizeColor(marqueeConfig.color),
+    background: normalizeColor(marqueeConfig.background),
+  };
   
   return {
     ...data,
     moduleConfigs,
     homePageStyle: normalizedHomePageStyle,
+    heroTitleStyle: normalizedHeroTitleStyle,
+    marqueeConfig: normalizedMarqueeConfig,
   };
 }
 
-const SiteSettingsPage: React.FC = () => {
+const SiteSettingsPage: React.FC<{ onSettingsSaved?: () => void }> = ({ onSettingsSaved }) => {
   const [form] = Form.useForm();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -116,11 +138,14 @@ const SiteSettingsPage: React.FC = () => {
       const normalizedData = normalizeSettingsData(settingsData);
       setSettings(normalizedData);
       setAnnouncements(annData.map(a => ({ id: a.id, title: a.title })));
+      // 同步所有表单字段
       form.setFieldsValue({
         siteName: normalizedData.siteName || '',
         siteSubtitle: normalizedData.siteSubtitle || '',
         registerMode: normalizedData.registerMode || 'open',
       });
+      // 单独同步菜单标签（使用 setFieldsValue 保证表单能刷新显示）
+      form.setFieldsValue(normalizedData.menuLabels || {});
     } catch (err) {
       console.error('加载设置失败:', err);
       message.error('加载设置失败');
@@ -129,12 +154,21 @@ const SiteSettingsPage: React.FC = () => {
     }
   };
 
+  // 当 settings 更新后（保存后），同步菜单标签表单显示最新值
+  useEffect(() => {
+    if (settings.menuLabels) {
+      form.setFieldsValue(settings.menuLabels);
+    }
+  }, [settings.menuLabels]);
+
   const handleSave = async (values: any) => {
     setSaving(true);
     try {
       const updated = await updateSiteSettings({ ...settings, ...values });
       setSettings(updated);
       message.success('设置已保存');
+      // 通知父组件刷新站点配置（侧边栏和首页实时响应）
+      if (onSettingsSaved) onSettingsSaved();
     } catch {
       message.error('保存失败');
     } finally {
@@ -291,12 +325,15 @@ const SiteSettingsPage: React.FC = () => {
 
       <Card title="侧边栏菜单名称" style={{ marginBottom: 24 }}>
         <Text type="secondary" style={{ display: 'block', marginBottom: 16 }}>
-          自定义侧边栏各菜单项的显示名称，修改后首页模块名称也会同步更新。
+          自定义侧边栏各菜单项的显示名称。修改后首页模块名称和侧边栏菜单均会自动更新。
         </Text>
         <Form
           layout="vertical"
           initialValues={settings.menuLabels || {}}
-          onFinish={(values) => handleSave({ ...settings, menuLabels: values })}
+          onFinish={(values) => {
+            const updatedSettings = { ...settings, menuLabels: { ...settings.menuLabels, ...values } };
+            handleSave(updatedSettings);
+          }}
         >
           <Row gutter={12}>
             <Col span={8}>
@@ -470,8 +507,8 @@ const SiteSettingsPage: React.FC = () => {
             heroTitleStyle: {
               fontSize: values.fontSize,
               subtitleFontSize: values.subtitleFontSize,
-              titleColor: values.titleColor,
-              subtitleColor: values.subtitleColor,
+              titleColor: normalizeColor(values.titleColor),
+              subtitleColor: normalizeColor(values.subtitleColor),
               position: values.position,
               bannerOpacity: values.bannerOpacity,
             }
@@ -499,12 +536,12 @@ const SiteSettingsPage: React.FC = () => {
             </Col>
             <Col span={8}>
               <Form.Item label="标题颜色" name="titleColor">
-                <Input placeholder="#ffffff 或 rgba(255,255,255,0.85)" />
+                <ColorPicker />
               </Form.Item>
             </Col>
             <Col span={8}>
               <Form.Item label="副标题颜色" name="subtitleColor">
-                <Input placeholder="rgba(255,255,255,0.85)" />
+                <ColorPicker />
               </Form.Item>
             </Col>
             <Col span={8}>
@@ -540,8 +577,8 @@ const SiteSettingsPage: React.FC = () => {
               enabled: values.enabled,
               announcementIds: values.announcementIds,
               fontSize: values.fontSize,
-              color: values.color,
-              background: values.background,
+              color: normalizeColor(values.color),
+              background: normalizeColor(values.background),
               speed: values.speed,
             }
           })}
@@ -573,12 +610,12 @@ const SiteSettingsPage: React.FC = () => {
             </Col>
             <Col span={6}>
               <Form.Item label="文字颜色" name="color">
-                <Input placeholder="#ffffff 或 rgba(0,0,0,0.5)" />
+                <ColorPicker />
               </Form.Item>
             </Col>
             <Col span={6}>
               <Form.Item label="背景颜色" name="background">
-                <Input placeholder="rgba(0,0,0,0.5)" />
+                <ColorPicker />
               </Form.Item>
             </Col>
           </Row>
@@ -616,7 +653,7 @@ const SiteSettingsPage: React.FC = () => {
           <Row gutter={16}>
             <Col span={6}>
               <Form.Item label="背景颜色" name="backgroundColor">
-                <Input placeholder="#f0f2f5" />
+                <ColorPicker />
               </Form.Item>
             </Col>
             <Col span={6}>

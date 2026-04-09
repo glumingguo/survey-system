@@ -5,7 +5,9 @@
   "main": "server/index.js",
   "scripts": {
     "dev": "concurrently \"npm run server\" \"npm run client\"",
-    "server": "node server/index.js",
+    "server": "node --require ./scripts/start-server.js",
+    "start": "npm run server",
+    "start": "npm run server",
     "client": "vite",
     "build": "vite build",
     "preview": "vite preview"

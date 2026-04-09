@@ -37,8 +37,6 @@ const AlbumPage: React.FC = () => {
   const [viewAlbum, setViewAlbum] = useState<Album | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [uploading, setUploading] = useState(false);
-  const [previewVisible, setPreviewVisible] = useState(false);
-  const [previewIndex, setPreviewIndex] = useState(0);
 
   const loadData = async () => {
     setLoading(true);
@@ -68,10 +66,28 @@ const AlbumPage: React.FC = () => {
     }
   };
 
+  const [uploadFileList, setUploadFileList] = useState<any[]>([]);
+
+  // 统一防复制配置（保护图片不被右键保存/拖拽保存）
+  const protectedImageProps = {
+    onContextMenu: (e: React.MouseEvent) => e.preventDefault(),
+    onDragStart: (e: React.DragEvent) => e.preventDefault(),
+    onCopy: (e: React.ClipboardEvent) => e.preventDefault(),
+    onSelectStart: (e: React.Event) => e.preventDefault(),
+  };
+
+  // 提交选中的照片
+  const handleUploadSubmit = () => {
+    const files = uploadFileList.map(f => f.originFileObj).filter(Boolean) as File[];
+    if (files.length === 0) return;
+    setUploadFileList([]); // 提交后立即清空，防止重传
+    handleUploadPhotos(files);
+  };
+
   // 关闭抽屉时清理状态
   const handleDrawerClose = () => {
     setDrawerOpen(false);
-    // 延迟清理 viewAlbum，确保动画完成
+    setUploadFileList([]); // 关闭时清空待上传列表
     setTimeout(() => setViewAlbum(null), 300);
   };
 
@@ -117,14 +133,39 @@ const AlbumPage: React.FC = () => {
     if (!viewAlbum || uploading) return;
     setUploading(true);
     try {
-      const newPhotos = await uploadPhotos(viewAlbum.id, fileList);
+      // 前置过滤：排除相册中已存在的同名照片
+      const existingNames = new Set((viewAlbum.photos || []).map(p => p.name));
+      let newFiles = fileList.filter(f => {
+        let name = f.name;
+        if (name.includes('%')) {
+          try { name = decodeURIComponent(name); } catch {}
+        }
+        return !existingNames.has(name);
+      });
+
+      if (newFiles.length === 0) {
+        message.warning('所选照片均已在相册中存在，无需重复上传');
+        setUploading(false);
+        return;
+      }
+
+      const result = await uploadPhotos(viewAlbum.id, newFiles);
+      const { inserted, skipped } = result;
+      const insertedPhotos = Array.isArray(result) ? result : (inserted || []);
+
       // 更新本地相册照片列表
       setViewAlbum(prev => {
         if (!prev) return prev;
-        const existingPhotos = prev.photos || [];
-        return { ...prev, photos: [...existingPhotos, ...newPhotos] };
+        return { ...prev, photos: [...(prev.photos || []), ...insertedPhotos] };
       });
-      message.success(`成功上传 ${newPhotos.length} 张照片`);
+
+      // 组合提示
+      const parts = [];
+      if (insertedPhotos.length > 0) parts.push(`成功上传 ${insertedPhotos.length} 张`);
+      if (skipped?.length > 0) parts.push(`跳过 ${skipped.length} 张（相册中已存在）`);
+      if (newFiles.length < fileList.length) parts.push(`过滤 ${fileList.length - newFiles.length} 张（同批次重复）`);
+      message.success(parts.join('，'));
+
       // 单独更新相册列表，不影响当前查看状态
       const albumsData = await getAlbums();
       setAlbums(albumsData);
@@ -246,62 +287,92 @@ const AlbumPage: React.FC = () => {
         width={600}
         extra={
           isAdmin && viewAlbum && (
-            <Upload
-              beforeUpload={() => false}
-              multiple
-              accept="image/*"
-              showUploadList={false}
-              onChange={({ fileList }) => {
-                const files = fileList.map(f => f.originFileObj!).filter(Boolean);
-                if (files.length > 0) handleUploadPhotos(files);
-              }}
-            >
-              <Button icon={<UploadOutlined />} loading={uploading}>上传照片</Button>
-            </Upload>
+            <Space>
+              {uploadFileList.length > 0 && (
+                <Button
+                  type="primary"
+                  icon={<UploadOutlined />}
+                  loading={uploading}
+                  onClick={handleUploadSubmit}
+                >
+                  上传 {uploadFileList.length} 张
+                </Button>
+              )}
+              <Upload
+                fileList={uploadFileList}
+                beforeUpload={() => false}
+                multiple
+                accept="image/*"
+                onChange={({ fileList: newList }) => {
+                  // 避免触发父组件更新导致的重复追加
+                  setUploadFileList(prev => {
+                    const prevKeys = new Set(prev.map(f => f.name + f.size));
+                    const added = newList.filter(f => !prevKeys.has(f.name + f.size));
+                    return [...prev, ...added];
+                  });
+                }}
+                onRemove={(file) => {
+                  setUploadFileList(prev => prev.filter(f => f.uid !== file.uid));
+                }}
+              >
+                <Button icon={<UploadOutlined />} disabled={uploading}>选择照片</Button>
+              </Upload>
+            </Space>
           )
         }
       >
         {photos.length === 0 ? (
           <Empty description="相册暂无照片" />
         ) : (
-          <Image.PreviewGroup
-            preview={{
-              visible: previewVisible,
-              current: previewIndex,
-              onVisibleChange: setPreviewVisible,
-            }}
-          >
-            <Row gutter={[8, 8]}>
-              {photos.map((photo, idx) => (
-                <Col key={photo.id} span={8}>
-                  <div style={{ position: 'relative', aspectRatio: '1', overflow: 'hidden', borderRadius: 4 }}>
-                    <Image
-                      src={`${API_BASE}${photo.file_path}`}
-                      style={{ width: '100%', height: '100%', objectFit: 'cover', cursor: 'pointer' }}
-                      preview={{ src: `${API_BASE}${photo.file_path}` }}
-                      onClick={() => { setPreviewIndex(idx); setPreviewVisible(true); }}
-                      fallback="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAMIAAADDCAYAAADQvc6UAAABRWlDQ1BJQ0MgUHJvZmlsZQAAKJFjYGASSSwoyGFhYGDIzSspCnJ3UoiIjFJgf8LAwSDCIMogwMCcmFxc4BgQ4ANUwgCjUcG3awyMIPqyLsis7PPOq3QdDFcvjV3jOD1boQVTPQrgSkktTgbSf4A4LbmgqISBgTEFyFYuLykAsTuAbJEioKOA7DkgdjqEvQHEToKwj4DVhAQ5A9k3gGyB5IxEoBmML4BsnSQk8XQkNtReEOBxcfXxUQg1Mjc0dyBoBSSpyZOoOCkqgZoOBhQgDgdWLkqJMHiGYNJCCEU8KANcuHYWMSmJAA=="
-                    />
-                    {isAdmin && (
-                      <Popconfirm
-                        title="确认删除此照片？"
-                        onConfirm={() => handleDeletePhoto(photo.id)}
-                        okText="删除" okType="danger" cancelText="取消"
-                      >
-                        <Button
-                          size="small"
-                          danger
-                          icon={<DeleteOutlined />}
-                          style={{ position: 'absolute', top: 4, right: 4, opacity: 0.85 }}
-                          onClick={e => e.stopPropagation()}
-                        />
-                      </Popconfirm>
-                    )}
+          <Row gutter={[8, 8]}>
+            {photos.map((photo) => (
+              <Col key={photo.id} span={8}>
+                {/* 图片保护容器：禁止右键/拖拽 + 水印 */}
+                <div
+                  style={{ position: 'relative', aspectRatio: '1', overflow: 'hidden', borderRadius: 4 }}
+                  onContextMenu={e => e.preventDefault()}
+                  onDragStart={e => e.preventDefault()}
+                >
+                  {/* 水印层：覆盖在图片上方，不影响点击但截图会带水印 */}
+                  <div style={{
+                    position: 'absolute', inset: 0, zIndex: 2, pointerEvents: 'none',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  }}>
+                    <div style={{
+                      color: 'rgba(255,255,255,0.35)', fontSize: 11, fontWeight: 600,
+                      letterSpacing: 1, textShadow: '0 1px 3px rgba(0,0,0,0.5)',
+                      transform: 'rotate(-15deg)', userSelect: 'none', whiteSpace: 'nowrap',
+                      pointerEvents: 'none',
+                    }}>
+                      仅限站内浏览
+                    </div>
                   </div>
-                </Col>
-              ))}
-            </Row>
-          </Image.PreviewGroup>
+                  <Image
+                    src={`${API_BASE}${photo.file_path}`}
+                    style={{ width: '100%', height: '100%', objectFit: 'cover', pointerEvents: 'none' }}
+                    preview={isAdmin ? true : false}
+                    {...protectedImageProps}
+                    fallback="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAMIAAADDCAYAAADQvc6UAAABRWlDQ1BJQ0MgUHJvZmlsZQAAKJFjYGASSSwoyGFhYGDIzSspCnJ3UoiIjFJgf8LAwSDCIMogwMCcmFxc4BgQ4ANUwgCjUcG3awyMIPqyLsis7PPOq3QdDFcvjV3jOD1boQVTPQrgSkktTgbSf4A4LbmgqISBgTEFyFYuLykAsTuAbJEioKOA7DkgdjqEvQHEToKwj4DVhAQ5A9k3gGyB5IxEoBmML4BsnSQk8XQkNtReEOBxcfXxUQg1Mjc0dyBoBSSpyZOoOCkqgZoOBhQgDgdWLkqJMHiGYNJCCEU8KANcuHYWMSmJAA=="
+                  />
+                  {isAdmin && (
+                    <Popconfirm
+                      title="确认删除此照片？"
+                      onConfirm={() => handleDeletePhoto(photo.id)}
+                      okText="删除" okType="danger" cancelText="取消"
+                    >
+                      <Button
+                        size="small"
+                        danger
+                        icon={<DeleteOutlined />}
+                        style={{ position: 'absolute', top: 4, right: 4, opacity: 0.85 }}
+                        onClick={e => e.stopPropagation()}
+                      />
+                    </Popconfirm>
+                  )}
+                </div>
+              </Col>
+            ))}
+          </Row>
         )}
       </Drawer>
 

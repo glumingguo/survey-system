@@ -829,8 +829,26 @@ const SurveyViewSequential: React.FC = () => {
           }}
         />
       )}
-      <div style={{ position: 'relative', zIndex: 1, maxWidth: 800, margin: '0 auto', padding: '24px 12px' }}>
-      <Card style={{ boxShadow: '0 4px 24px rgba(0, 0, 0, 0.1)' }}>
+      <div
+        style={{ position: 'relative', zIndex: 1, maxWidth: 800, margin: '0 auto', padding: '24px 12px' }}
+        onContextMenu={e => e.preventDefault()}
+      >
+        <style>{`
+          .survey-protected .ant-typography,
+          .survey-protected h1, .survey-protected h2,
+          .survey-protected h3, .survey-protected h4,
+          .survey-protected .question-text {
+            user-select: none;
+            -webkit-user-select: none;
+            -webkit-touch-callout: none;
+          }
+          .survey-protected img {
+            -webkit-user-drag: none;
+            user-select: none;
+            pointer-events: none;
+          }
+        `}</style>
+      <Card style={{ boxShadow: '0 4px 24px rgba(0, 0, 0, 0.1)' }} className="survey-protected">
         {/* 问卷标题和进度 */}
         <div style={{ marginBottom: 24, textAlign: 'center', padding: '12px 0 0' }}>
           <Title level={3} style={{ marginBottom: 4 }}>{survey.title}</Title>
@@ -899,7 +917,7 @@ const SurveyViewSequential: React.FC = () => {
               </Space>
             </div>
             
-            <Title level={4} style={{ marginBottom: 16 }}>{currentQuestion.title}</Title>
+            <Title level={4} style={{ marginBottom: 16 }} className="question-text">{currentQuestion.title}</Title>
             
             {currentQuestion.description && (
               <Paragraph type="secondary" style={{ fontSize: '16px', marginBottom: 20 }}>
@@ -910,13 +928,26 @@ const SurveyViewSequential: React.FC = () => {
             {currentQuestion.imageUrl && (
               <div style={{ marginBottom: 24, textAlign: 'center' }}>
                 <Text type="secondary">示例图片：</Text>
-                <div style={{ marginTop: 12 }}>
+                <div style={{ marginTop: 12, position: 'relative', display: 'inline-block', maxWidth: 400 }}>
                   <Image
                     width="100%"
-                    style={{ maxWidth: 400, borderRadius: '8px' }}
+                    style={{ maxWidth: 400, borderRadius: '8px', pointerEvents: 'none', userSelect: 'none' }}
                     src={currentQuestion.imageUrl}
                     alt="示例图片"
+                    preview={false}
                   />
+                  {/* 图片水印 */}
+                  <div style={{
+                    position: 'absolute', inset: 0, zIndex: 1,
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    pointerEvents: 'none',
+                  }}>
+                    <div style={{
+                      color: 'rgba(255,255,255,0.25)', fontSize: 12, fontWeight: 700,
+                      letterSpacing: 2, textShadow: '0 1px 3px rgba(0,0,0,0.5)',
+                      transform: 'rotate(-15deg)', userSelect: 'none',
+                    }}>仅限站内浏览</div>
+                  </div>
                 </div>
               </div>
             )}

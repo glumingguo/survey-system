@@ -73,9 +73,6 @@ const JWT_SECRET = process.env.JWT_SECRET || 'survey-system-secret-key-2024';
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
   ssl: false,
-  types: {
-    getTypeParser: () => (val) => val
-  }
 });
 
 // 设置客户端编码为 UTF8（解决中文乱码问题）
@@ -227,12 +224,20 @@ async function initDB() {
       );
     `);
 
-    // 添加新字段（如果不存在）
+    // 添加 users 表的新字段（如果不存在）
     await client.query(`
       ALTER TABLE users ADD COLUMN IF NOT EXISTS status VARCHAR(20) DEFAULT 'active';
       ALTER TABLE users ADD COLUMN IF NOT EXISTS group_ids JSONB DEFAULT '[]';
       ALTER TABLE users ADD COLUMN IF NOT EXISTS avatar TEXT;
     `);
+
+    // user_profiles 表的列补全（防止旧表缺少字段）
+    await client.query(`ALTER TABLE user_profiles ADD COLUMN IF NOT EXISTS education VARCHAR(20);`);
+    await client.query(`ALTER TABLE user_profiles ADD COLUMN IF NOT EXISTS income_range VARCHAR(50);`);
+    await client.query(`ALTER TABLE user_profiles ADD COLUMN IF NOT EXISTS profile_completed BOOLEAN DEFAULT false;`);
+    await client.query(`ALTER TABLE user_profiles ADD COLUMN IF NOT EXISTS avatar_url TEXT;`);
+    await client.query(`ALTER TABLE user_profiles ADD COLUMN IF NOT EXISTS hobbies TEXT;`);
+    await client.query(`ALTER TABLE user_profiles ADD COLUMN IF NOT EXISTS interests TEXT;`);
 
     // 创建用户资料扩展表（存储更详细的用户信息）
     await client.query(`
@@ -574,6 +579,7 @@ app.get('/api/auth/profile', authenticateToken, async (req, res) => {
 // 更新当前用户的资料
 app.put('/api/auth/profile', authenticateToken, async (req, res) => {
   try {
+    const userId = req.user.id;
     const {
       nickname, gender, age, birthday, occupation, marital_status,
       province, city, district, address, phone, wechat, qq,
@@ -581,12 +587,7 @@ app.put('/api/auth/profile', authenticateToken, async (req, res) => {
       avatar_url, cover_image, birthday_public, contact_public
     } = req.body;
 
-    // 检查是否已有资料记录
-    const checkResult = await pool.query(
-      'SELECT user_id FROM user_profiles WHERE user_id = $1',
-      [req.user.id]
-    );
-
+    // 构建要更新的字段，确保 profile_completed 始终为 true
     const profileData = {
       nickname, gender, age, birthday, occupation, marital_status,
       province, city, district, address, phone, wechat, qq,
@@ -597,35 +598,73 @@ app.put('/api/auth/profile', authenticateToken, async (req, res) => {
 
     // 过滤掉 undefined 值
     const cleanData = Object.fromEntries(
-      Object.entries(profileData).filter(([_, v]) => v !== undefined)
+      Object.entries(profileData).filter(([, v]) => v !== undefined)
+    );
+
+    const keys = Object.keys(cleanData);
+    const vals = Object.values(cleanData);
+
+    // 检查是否已有资料记录
+    const checkResult = await pool.query(
+      'SELECT user_id FROM user_profiles WHERE user_id = $1',
+      [userId]
     );
 
     if (checkResult.rows.length === 0) {
-      // 新增资料记录
-      await pool.query(
-        `INSERT INTO user_profiles (user_id, ${Object.keys(cleanData).join(', ')}, updated_at)
-         VALUES ($1, ${Object.keys(cleanData).map((_, i) => `$${i + 2}`).join(', ')}, NOW())
-         ON CONFLICT (user_id) DO UPDATE SET ${Object.keys(cleanData).map(k => `${k} = EXCLUDED.${k}`).join(', ')}, updated_at = NOW()`,
-        [req.user.id, ...Object.values(cleanData)]
-      );
+      // 新增资料记录（INSERT 至少有 profile_completed 和 updated_at）
+      if (keys.length > 0) {
+        await pool.query(
+          `INSERT INTO user_profiles (user_id, ${keys.join(', ')}, updated_at)
+           VALUES ($1, ${keys.map((_, i) => `$${i + 2}`).join(', ')}, NOW())`,
+          [userId, ...vals]
+        );
+      } else {
+        await pool.query(
+          `INSERT INTO user_profiles (user_id, profile_completed, updated_at) VALUES ($1, true, NOW())`,
+          [userId]
+        );
+      }
     } else {
-      // 更新资料
-      const setClause = Object.keys(cleanData).map((k, i) => `${k} = $${i + 2}`).join(', ');
-      await pool.query(
-        `UPDATE user_profiles SET ${setClause}, updated_at = NOW() WHERE user_id = $1`,
-        [req.user.id, ...Object.values(cleanData)]
-      );
+      // 更新资料（必须有字段才执行 UPDATE）
+      if (keys.length > 0) {
+        const setClause = keys.map((k, i) => `${k} = $${i + 2}`).join(', ');
+        await pool.query(
+          `UPDATE user_profiles SET ${setClause}, updated_at = NOW() WHERE user_id = $1`,
+          [userId, ...vals]
+        );
+      }
     }
 
     // 如果用户设置了头像，也更新到 users 表
     if (avatar_url !== undefined) {
-      await pool.query('UPDATE users SET avatar = $1 WHERE id = $2', [avatar_url, req.user.id]);
+      await pool.query('UPDATE users SET avatar = $1 WHERE id = $2', [avatar_url, userId]);
     }
 
-    res.json({ message: '资料更新成功' });
+    // 返回更新后的完整资料（合并 users + user_profiles 字段）
+    const result = await pool.query(`
+      SELECT
+        u.id, u.username, u.email, u.role,
+        u.avatar,
+        p.nickname, p.avatar_url, p.gender, p.age, p.birthday,
+        p.occupation, p.marital_status,
+        p.province, p.city, p.district, p.address,
+        p.phone, p.wechat, p.qq,
+        p.bio, p.hobbies, p.interests,
+        p.education, p.income_range,
+        p.cover_image, p.birthday_public, p.contact_public,
+        p.profile_completed
+      FROM users u
+      LEFT JOIN user_profiles p ON u.id = p.user_id
+      WHERE u.id = $1
+    `, [userId]);
+
+    res.json({
+      message: '资料更新成功',
+      ...result.rows[0],
+    });
   } catch (error) {
-    console.error('更新用户资料失败:', error);
-    res.status(500).json({ error: '更新用户资料失败' });
+    console.error('更新用户资料失败:', error.message, error.stack);
+    res.status(500).json({ error: '更新用户资料失败: ' + (error.message || '未知错误') });
   }
 });
 
@@ -1352,7 +1391,11 @@ function normalizeHomePageStyle(settings) {
 app.get('/api/site-settings', async (req, res) => {
   try {
     const result = await pool.query("SELECT value FROM settings WHERE key = 'siteSettings'");
-    const settings = result.rows[0] ? result.rows[0].value : {};
+    let settings = result.rows[0] ? result.rows[0].value : {};
+    // 处理双重编码的旧数据：如果 settings 是字符串则尝试解析
+    if (typeof settings === 'string') {
+      try { settings = JSON.parse(settings); } catch { settings = {}; }
+    }
     // 公开接口返回所有前台展示所需字段
     res.json({
       siteName: settings.siteName || '我的个人空间',
@@ -1377,7 +1420,13 @@ app.get('/api/admin/site-settings', authenticateToken, async (req, res) => {
   if (req.user.role !== 'admin') return res.status(403).json({ error: '需要管理员权限' });
   try {
     const result = await pool.query("SELECT value FROM settings WHERE key = 'siteSettings'");
-    res.json(result.rows[0] ? result.rows[0].value : {});
+    if (!result.rows[0]) return res.json({});
+    let value = result.rows[0].value;
+    // 处理双重编码的旧数据：如果 value 是字符串则尝试解析
+    if (typeof value === 'string') {
+      try { value = JSON.parse(value); } catch { /* 已是纯字符串 */ }
+    }
+    res.json(value);
   } catch (error) {
     res.status(500).json({ error: '获取站点设置失败' });
   }
@@ -1584,7 +1633,13 @@ app.get('/api/admin/users', authenticateToken, async (req, res) => {
     `, [...params, pageSize, offset]);
 
     res.json({
-      users: result.rows,
+      users: result.rows.map(u => ({
+        ...u,
+        group_ids: Array.isArray(u.group_ids) ? u.group_ids :
+          (typeof u.group_ids === 'string' && u.group_ids
+            ? (() => { try { const p = JSON.parse(u.group_ids); return Array.isArray(p) ? p : []; } catch { return []; } })()
+            : [])
+      })),
       total,
       page: pageNum,
       page_size: pageSize,
@@ -2081,29 +2136,30 @@ app.post('/api/admin/resource-folders/:id/files/batch', authenticateToken, resou
   
   try {
     const inserted = [];
-    // 使用 Set 来跟踪已插入的文件，避免重复
+    const skipped = [];
     const insertedNames = new Set();
-    
+
     for (const file of req.files) {
-      // 获取原始文件名，修复双重编码问题
       const originalName = fixDoubleEncoding(file.originalname);
-      
-      // 避免完全相同的文件名被重复插入（同一次上传中）
-      const fileKey = `${file.size}-${originalName}`;
-      if (insertedNames.has(fileKey)) {
+
+      // 同批次内去重
+      const batchKey = `${file.size}-${originalName}`;
+      if (insertedNames.has(batchKey)) {
+        skipped.push({ name: originalName, reason: '同批次内重复' });
         continue;
       }
-      insertedNames.add(fileKey);
-      
-      // 检查数据库中是否已存在相同 original_name 的文件
+      insertedNames.add(batchKey);
+
+      // 数据库去重
       const existingFile = await pool.query(
         'SELECT id FROM resource_files WHERE folder_id=$1 AND original_name=$2',
         [req.params.id, originalName]
       );
       if (existingFile.rows.length > 0) {
+        skipped.push({ name: originalName, reason: '文件夹中已存在' });
         continue;
       }
-      
+
       const id = nanoid(10);
       const result = await pool.query(
         'INSERT INTO resource_files (id, folder_id, name, original_name, file_path, file_type, file_size, description) VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *',
@@ -2111,7 +2167,8 @@ app.post('/api/admin/resource-folders/:id/files/batch', authenticateToken, resou
       );
       inserted.push(result.rows[0]);
     }
-    res.json(inserted);
+
+    res.json({ inserted, skipped });
   } catch (error) {
     console.error('批量上传文件失败:', error);
     res.status(500).json({ error: '批量上传文件失败' });
@@ -2455,21 +2512,30 @@ app.post('/api/admin/albums/:id/photos', authenticateToken, photoUpload.array('p
   if (!req.files || req.files.length === 0) return res.status(400).json({ error: '没有上传照片' });
   try {
     const inserted = [];
-    // 使用 Set 来跟踪已插入的文件，避免重复
+    const skipped = [];
     const insertedNames = new Set();
-    
+
     for (const file of req.files) {
-      // 解码文件名
       const decodedName = decodeFileName(file.originalname);
-      
-      // 避免完全相同的文件名被重复插入（同一次上传中）
-      const fileKey = `${file.size}-${decodedName}`;
-      if (insertedNames.has(fileKey)) {
-        console.log(`跳过重复照片: ${decodedName}`);
+
+      // 同批次内去重
+      const batchKey = `${file.size}-${decodedName}`;
+      if (insertedNames.has(batchKey)) {
+        skipped.push({ name: decodedName, reason: '同批次内重复' });
         continue;
       }
-      insertedNames.add(fileKey);
-      
+      insertedNames.add(batchKey);
+
+      // 数据库去重：检查同一相册中是否已有同名照片
+      const existing = await pool.query(
+        'SELECT id FROM album_photos WHERE album_id=$1 AND name=$2',
+        [req.params.id, decodedName]
+      );
+      if (existing.rows.length > 0) {
+        skipped.push({ name: decodedName, reason: '相册中已存在' });
+        continue;
+      }
+
       const id = nanoid(10);
       const result = await pool.query(
         'INSERT INTO album_photos (id, album_id, name, file_path) VALUES ($1,$2,$3,$4) RETURNING *',
@@ -2477,12 +2543,14 @@ app.post('/api/admin/albums/:id/photos', authenticateToken, photoUpload.array('p
       );
       inserted.push(result.rows[0]);
     }
+
     // 更新相册封面（取第一张）
     const coverResult = await pool.query('SELECT file_path FROM album_photos WHERE album_id=$1 ORDER BY created_at ASC LIMIT 1', [req.params.id]);
     if (coverResult.rows[0]) {
       await pool.query('UPDATE albums SET cover_image=$1 WHERE id=$2 AND cover_image IS NULL', [coverResult.rows[0].file_path, req.params.id]);
     }
-    res.json(inserted);
+
+    res.json({ inserted, skipped });
   } catch (error) {
     res.status(500).json({ error: '上传照片失败' });
   }
@@ -2504,10 +2572,83 @@ app.delete('/api/admin/album-photos/:id', authenticateToken, async (req, res) =>
   }
 });
 
-app.use('/uploads/resources', express.static(path.join(__dirname, 'uploads', 'resources')));
-app.use('/uploads/albums', express.static(path.join(__dirname, 'uploads', 'albums')));
-app.use('/uploads/site', express.static(path.join(__dirname, 'uploads', 'site')));
-app.use('/uploads/avatars', express.static(path.join(__dirname, 'uploads', 'avatars')));
+// ========== 受保护的静态文件服务 ==========
+// 原则：除管理员外，任何会员均不得下载/复制资料、照片等资源
+// 头像：任何已登录用户可访问（页面显示用，不允许下载）
+// 站点图片：仅管理员可访问
+// 资源文件、相册照片：仅管理员可下载
+
+// 统一的文件服务中间件（带认证检查）
+const serveProtectedFile = (baseDir, allowedRoles, forceDownload = true) => {
+  return async (req, res, next) => {
+    // 检查角色权限
+    if (!req.user) {
+      return res.status(401).json({ error: '请先登录' });
+    }
+    if (allowedRoles && !allowedRoles.includes(req.user.role)) {
+      return res.status(403).json({ error: '您没有权限访问此文件' });
+    }
+
+    // 清理路径，防止 ../ 路径遍历
+    const requestedPath = req.path.replace(/\.\./g, '');
+    const baseFullPath = path.normalize(path.join(__dirname, baseDir));
+    const filePath = path.normalize(path.join(baseFullPath, requestedPath));
+
+    // 验证最终路径在允许目录内（规范化后对比）
+    if (!filePath.startsWith(baseFullPath + path.sep) && filePath !== baseFullPath) {
+      return res.status(403).json({ error: '非法路径访问' });
+    }
+
+    // 检查文件是否存在
+    if (!fs.existsSync(filePath)) {
+      return res.status(404).json({ error: '文件不存在' });
+    }
+
+    if (forceDownload) {
+      // 强制下载：设置安全响应头
+      res.set({
+        'Content-Type': 'application/octet-stream',
+        'X-Content-Type-Options': 'nosniff',
+      });
+      const fileName = path.basename(filePath);
+      res.download(filePath, fileName, (err) => {
+        if (err) {
+          console.error('文件下载失败:', err.message);
+          if (!res.headersSent) {
+            res.status(500).json({ error: '文件下载失败' });
+          }
+        }
+      });
+    } else {
+      // 仅查看模式：可以显示但不允许下载/保存
+      res.set({
+        'Content-Security-Policy': "default-src 'none'; img-src 'self' data: blob:; style-src 'unsafe-inline'; script-src 'none'",
+        'X-Content-Type-Options': 'nosniff',
+        'Cache-Control': 'private, no-cache, no-store, must-revalidate',
+        'Pragma': 'no-cache',
+        'Expires': '0',
+        'Content-Disposition': 'inline',
+      });
+      res.sendFile(filePath, (err) => {
+        if (err) {
+          console.error('文件读取失败:', err.message);
+          if (!res.headersSent) {
+            res.status(500).json({ error: '文件读取失败' });
+          }
+        }
+      });
+    }
+  };
+};
+
+// 资源文件：仅管理员可下载
+app.get('/uploads/resources/*', authenticateToken, serveProtectedFile(path.join('uploads', 'resources'), ['admin']));
+// 相册照片：仅管理员可下载
+app.get('/uploads/albums/*', authenticateToken, serveProtectedFile(path.join('uploads', 'albums'), ['admin']));
+// 站点图片：仅管理员可访问
+app.get('/uploads/site/*', authenticateToken, serveProtectedFile(path.join('uploads', 'site'), ['admin']));
+// 头像：任何已登录用户可查看（用于页面展示），但仍需登录
+app.get('/uploads/avatars/*', authenticateToken, serveProtectedFile(path.join('uploads', 'avatars'), null));
 
 app.listen(PORT, () => {
   console.log(`问卷系统后端服务运行在 http://localhost:${PORT}`);

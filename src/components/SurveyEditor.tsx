@@ -41,6 +41,7 @@ import {
   StopOutlined
 } from '@ant-design/icons';
 import axios from 'axios';
+import api from '../api/auth';
 import { useNavigate, useParams } from 'react-router-dom';
 import PDFImport from './PDFImport';
 import ExcelImport from './ExcelImport';
@@ -124,7 +125,7 @@ const SurveyEditor: React.FC = () => {
 
   const fetchSurvey = async (surveyId: string) => {
     try {
-      const response = await axios.get(`/api/surveys/${surveyId}`);
+      const response = await api.get(`/api/surveys/${surveyId}`);
       const survey = response.data;
       form.setFieldsValue(survey);
       setQuestions(survey.questions || []);
@@ -253,7 +254,7 @@ const SurveyEditor: React.FC = () => {
       const formData = new FormData();
       formData.append('file', file);
       
-      const response = await axios.post('/api/upload', formData, {
+      const response = await api.post('/api/upload', formData, {
         headers: { 'Content-Type': 'multipart/form-data' }
       });
       
@@ -274,7 +275,7 @@ const SurveyEditor: React.FC = () => {
       const formData = new FormData();
       formData.append('file', file);
       
-      const response = await axios.post('/api/upload', formData, {
+      const response = await api.post('/api/upload', formData, {
         headers: { 'Content-Type': 'multipart/form-data' }
       });
       
@@ -377,6 +378,11 @@ const SurveyEditor: React.FC = () => {
   };
 
   const handleSave = async (status: 'draft' | 'published') => {
+    // 防止重复提交
+    if (loading) {
+      return;
+    }
+    
     try {
       setLoading(true);
       const values = await form.validateFields();
@@ -392,10 +398,10 @@ const SurveyEditor: React.FC = () => {
       };
       
       if (id) {
-        await axios.put(`/api/surveys/${id}`, surveyData);
+        await api.put(`/api/surveys/${id}`, surveyData);
         message.success('保存成功');
       } else {
-        await axios.post('/api/surveys', surveyData);
+        await api.post('/api/surveys', surveyData);
         message.success('创建成功');
       }
       

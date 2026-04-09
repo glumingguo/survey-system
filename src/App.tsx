@@ -37,6 +37,7 @@ import VisitStatistics from './components/VisitStatistics';
 import ResourceLibrary from './components/ResourceLibrary';
 import AlbumPage from './components/Albums';
 import ProfilePage from './pages/Profile';
+import ErrorBoundary from './components/ErrorBoundary';
 import { useAuth } from './context/AuthContext';
 import { getSiteSettings } from './api/site';
 import './App.css';
@@ -297,10 +298,12 @@ function MainLayout() {
             {/* 个人中心 */}
             <Route path="/profile" element={<ProfilePage />} />
             {/* 管理员模块 */}
-            <Route path="/admin/members" element={<MemberManagement />} />
+            <Route path="/admin/members" element={<ErrorBoundary><MemberManagement /></ErrorBoundary>} />
             <Route path="/admin/invite-codes" element={<InviteCodes />} />
             <Route path="/admin/visit-stats" element={<VisitStatistics />} />
-            <Route path="/admin/site-settings" element={<SiteSettingsPage />} />
+            <Route path="/admin/site-settings" element={<SiteSettingsPage onSettingsSaved={() => {
+              getSiteSettings().then(cfg => setSiteConfig(cfg as SiteConfig)).catch(() => {});
+            }} />} />
             <Route path="/settings/email" element={<EmailSettings />} />
             <Route path="*" element={<Navigate to="/" />} />
           </Routes>

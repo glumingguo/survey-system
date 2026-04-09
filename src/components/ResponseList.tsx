@@ -22,6 +22,7 @@ import {
 } from '@ant-design/icons';
 import axios from 'axios';
 import { useNavigate, useParams } from 'react-router-dom';
+import { useAuth } from '../context/AuthContext';
 
 const { Title, Text, Paragraph } = Typography;
 
@@ -47,6 +48,8 @@ interface Question {
 }
 
 const ResponseList: React.FC = () => {
+  const { user } = useAuth();
+  const isAdmin = user?.role === 'admin';
   const [loading, setLoading] = useState(false);
   const [responses, setResponses] = useState<Response[]>([]);
   const [survey, setSurvey] = useState<any>(null);
@@ -273,15 +276,18 @@ const ResponseList: React.FC = () => {
                             width={200}
                             src={file.path}
                             alt={file.name}
+                            style={{ pointerEvents: 'none', userSelect: 'none' }}
                           />
                         )}
-                        <Button
-                          type="link"
-                          icon={<DownloadOutlined />}
-                          onClick={() => handleDownloadFile(file)}
-                        >
-                          下载文件
-                        </Button>
+                        {isAdmin && (
+                          <Button
+                            type="link"
+                            icon={<DownloadOutlined />}
+                            onClick={() => handleDownloadFile(file)}
+                          >
+                            下载文件
+                          </Button>
+                        )}
                       </Space>
                     </Card>
                   ))}

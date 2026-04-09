@@ -78,7 +78,33 @@ export interface UserProfile {
 // 创建 axios 实例
 const api = axios.create({
   baseURL: API_BASE,
+  timeout: 15000, // 15秒超时，避免请求挂起
 });
+
+// 提取错误消息的辅助函数
+function extractErrorMessage(error: any): string {
+  // 优先从 response.data.error 获取
+  if (error.response?.data?.error) {
+    return error.response.data.error;
+  }
+  // 尝试 response.data.message
+  if (error.response?.data?.message) {
+    return error.response.data.message;
+  }
+  // 尝试 response.statusText
+  if (error.response?.statusText) {
+    return error.response.statusText;
+  }
+  // 网络错误
+  if (error.code === 'ECONNABORTED') {
+    return '请求超时，请检查网络连接';
+  }
+  if (error.message?.includes('Network Error') || !error.response) {
+    return '无法连接服务器，请检查网络或服务是否正常运行';
+  }
+  // 未知错误
+  return '操作失败，请稍后重试';
+}
 
 // 请求拦截器：添加 token
 api.interceptors.request.use((config) => {
@@ -93,10 +119,11 @@ api.interceptors.request.use((config) => {
 api.interceptors.response.use(
   (response) => response,
   (error) => {
+    // 登录页面不做重定向，让错误信息正常显示
     if (error.response?.status === 401 || error.response?.status === 403) {
-      localStorage.removeItem('token');
-      localStorage.removeItem('user');
       if (window.location.pathname !== '/login') {
+        localStorage.removeItem('token');
+        localStorage.removeItem('user');
         window.location.href = '/login';
       }
     }
@@ -162,8 +189,9 @@ export const getUserProfile = async (): Promise<UserProfile> => {
 };
 
 // 更新当前用户资料
-export const updateUserProfile = async (data: Partial<UserProfile>): Promise<void> => {
-  await api.put('/api/auth/profile', data);
+export const updateUserProfile = async (data: Partial<UserProfile>): Promise<any> => {
+  const res = await api.put('/api/auth/profile', data);
+  return res.data;
 };
 
 // 上传用户头像

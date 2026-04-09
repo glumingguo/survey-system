@@ -141,10 +141,36 @@ const ResourceLibrary: React.FC = () => {
   const handleBatchUpload = async (fileList: File[]) => {
     if (!selectedFolder || fileList.length === 0 || uploading) return;
     setUploading(true);
+
     try {
-      const newFiles = await uploadResourceFiles(selectedFolder.id, fileList);
-      setFiles(prev => [...prev, ...newFiles]);
-      message.success(`成功上传 ${newFiles.length} 个文件`);
+      // 前置过滤：排除文件夹中已存在的同名文件
+      const existingNames = new Set(files.map(f => f.original_name));
+      let newFiles = fileList.filter(f => {
+        let name = f.name;
+        if (name.includes('%')) {
+          try { name = decodeURIComponent(name); } catch {}
+        }
+        return !existingNames.has(name);
+      });
+
+      if (newFiles.length === 0) {
+        message.warning('所选文件均已在文件夹中存在，无需重复上传');
+        setUploading(false);
+        return;
+      }
+
+      const result = await uploadResourceFiles(selectedFolder.id, newFiles);
+      const { inserted, skipped } = result;
+      const uploadedFiles = Array.isArray(result) ? result : (inserted || []);
+
+      setFiles(prev => [...prev, ...uploadedFiles]);
+
+      // 组合提示
+      const parts = [];
+      if (uploadedFiles.length > 0) parts.push(`成功上传 ${uploadedFiles.length} 个文件`);
+      if (skipped?.length > 0) parts.push(`跳过 ${skipped.length} 个（文件夹中已存在）`);
+      if (newFiles.length < fileList.length) parts.push(`过滤 ${fileList.length - newFiles.length} 个（同批次重复）`);
+      message.success(parts.join('，'));
     } catch (err: any) {
       console.error('批量上传失败:', err);
       message.error(err?.response?.data?.error || '批量上传失败，请重试');
@@ -308,15 +334,17 @@ const ResourceLibrary: React.FC = () => {
                   </div>
                 </Space>
                 <Space>
-                  <Button
-                    size="small"
-                    icon={<DownloadOutlined />}
-                    href={`${API_BASE}${file.file_path}`}
-                    target="_blank"
-                    download={file.original_name}
-                  >
-                    下载
-                  </Button>
+                  {isAdmin && (
+                    <Button
+                      size="small"
+                      icon={<DownloadOutlined />}
+                      href={`${API_BASE}${file.file_path}`}
+                      target="_blank"
+                      download={file.original_name}
+                    >
+                      下载
+                    </Button>
+                  )}
                   {isAdmin && (
                     <Popconfirm title="确认删除？" onConfirm={() => handleDeleteFile(file.id)} okText="删除" okType="danger" cancelText="取消">
                       <Button size="small" danger icon={<DeleteOutlined />} />

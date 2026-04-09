@@ -254,11 +254,15 @@ const HomePage: React.FC<Props> = ({ siteConfig }) => {
           <img
             src={`${API_BASE}${heroBanner}`}
             alt="横幅"
+            onContextMenu={e => e.preventDefault()}
+            onDragStart={e => e.preventDefault()}
             style={{
               width: '100%',
               height: '100%',
               objectFit: 'cover',
               opacity: titleStyle.bannerOpacity !== undefined ? titleStyle.bannerOpacity : 1,
+              pointerEvents: 'none',
+              userSelect: 'none',
             }}
           />
           {/* 半透明黑色遮罩（增强文字可读性） */}

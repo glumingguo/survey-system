@@ -243,7 +243,7 @@ export const uploadResourceFile = async (folderId: string, file: File, descripti
 };
 
 // 批量上传资源文件
-export const uploadResourceFiles = async (folderId: string, files: File[]): Promise<ResourceFile[]> => {
+export const uploadResourceFiles = async (folderId: string, files: File[]): Promise<{ inserted: ResourceFile[]; skipped: { name: string; reason: string }[] }> => {
   const formData = new FormData();
   files.forEach(f => formData.append('files', f));
   const res = await api.post(`/api/admin/resource-folders/${folderId}/files/batch`, formData, {
@@ -378,7 +378,7 @@ export const deleteAlbum = async (id: string): Promise<void> => {
   await api.delete(`/api/admin/albums/${id}`);
 };
 
-export const uploadPhotos = async (albumId: string, files: File[]): Promise<AlbumPhoto[]> => {
+export const uploadPhotos = async (albumId: string, files: File[]): Promise<{ inserted: AlbumPhoto[]; skipped: { name: string; reason: string }[] }> => {
   const formData = new FormData();
   files.forEach(f => formData.append('photos', f));
   const res = await api.post(`/api/admin/albums/${albumId}/photos`, formData, {

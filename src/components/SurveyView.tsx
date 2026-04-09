@@ -287,8 +287,25 @@ const SurveyView: React.FC = () => {
   ];
 
   return (
-    <div style={{ maxWidth: 800, margin: '0 auto', padding: '40px 20px' }}>
-      <Card>
+    <div
+      style={{ maxWidth: 800, margin: '0 auto', padding: '40px 20px' }}
+      onContextMenu={e => e.preventDefault()}
+    >
+      <style>{`
+        .survey-protected .ant-typography, .survey-protected h1,
+        .survey-protected h2, .survey-protected h3, .survey-protected h4,
+        .survey-protected .question-text {
+          user-select: none;
+          -webkit-user-select: none;
+          -webkit-touch-callout: none;
+        }
+        .survey-protected img {
+          -webkit-user-drag: none;
+          user-select: none;
+          pointer-events: none;
+        }
+      `}</style>
+      <Card className="survey-protected">
         {/* 标题区域，支持背景图 */}
         <div 
           style={{ 
@@ -359,7 +376,7 @@ const SurveyView: React.FC = () => {
                           </Space>
                         </div>
                         
-                        <Title level={4}>{question.title}</Title>
+                        <Title level={4} className="question-text">{question.title}</Title>
                         
                         {question.description && (
                           <Paragraph type="secondary">{question.description}</Paragraph>
@@ -368,13 +385,26 @@ const SurveyView: React.FC = () => {
                         {question.imageUrl && (
                           <div style={{ marginBottom: 16 }}>
                             <Text type="secondary">示例图片：</Text>
-                            <div style={{ marginTop: 8 }}>
+                            <div style={{ marginTop: 8, position: 'relative', display: 'inline-block' }}>
                               <Image
                                 width="100%"
-                                style={{ maxWidth: 300 }}
+                                style={{ maxWidth: 300, pointerEvents: 'none', userSelect: 'none' }}
                                 src={question.imageUrl}
                                 alt="示例图片"
+                                preview={false}
                               />
+                              {/* 图片水印 */}
+                              <div style={{
+                                position: 'absolute', inset: 0, zIndex: 1,
+                                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                pointerEvents: 'none',
+                              }}>
+                                <div style={{
+                                  color: 'rgba(255,255,255,0.25)', fontSize: 12, fontWeight: 700,
+                                  letterSpacing: 2, textShadow: '0 1px 3px rgba(0,0,0,0.5)',
+                                  transform: 'rotate(-15deg)', userSelect: 'none',
+                                }}>仅限站内浏览</div>
+                              </div>
                             </div>
                           </div>
                         )}
